@@ -84,6 +84,17 @@ This app **requires** root access to function. When you first launch it:
 2. Your root manager will prompt you to grant access
 3. The app will confirm when root access is granted
 
+## Known Issues & Limitations
+
+When handling signature mismatches, some limitations apply:
+- Runtime permissions will be reset (Android security requirement)
+- Apps that encrypt data with signing keys will lose that data
+- Installation location is preserved, but may not work for all scenarios
+
+For more details on signature mismatch handling, see:
+- [SIGNATURE_MISMATCH_FIXES.md](SIGNATURE_MISMATCH_FIXES.md) - Summary of fixes and limitations
+- [APK_REPLACEMENT_DISCUSSION.md](APK_REPLACEMENT_DISCUSSION.md) - Technical analysis of approaches
+
 ## Disclaimer
 
 This app is for educational and personal use only. Force installing apps can:

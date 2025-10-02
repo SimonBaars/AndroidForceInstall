@@ -187,6 +187,15 @@ public class MainActivity extends AppCompatActivity {
                     String output = String.join("\n", result.getOut());
                     
                     // Check for signature mismatch errors
+                    // When an APK with a different signature is installed over an existing app,
+                    // Android refuses the installation for security reasons.
+                    // Our approach: backup app data, uninstall old app, install new app, restore data
+                    // 
+                    // Why not replace APK on filesystem?
+                    // - Android's runtime verification would prevent the app from running
+                    // - PackageManager cache synchronization is complex and error-prone
+                    // - Split APK handling would be extremely complicated
+                    // See APK_REPLACEMENT_DISCUSSION.md for detailed analysis
                     if (output.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") || 
                         output.contains("signatures do not match") ||
                         output.contains("Existing package") && output.contains("signatures do not match")) {
@@ -218,7 +227,12 @@ public class MainActivity extends AppCompatActivity {
                                 statusText.setText(R.string.detecting_install_location);
                             });
                             
-                            // Detect current install location and user context before uninstall
+                            // CRITICAL: Detect current install location and user context before uninstall
+                            // This fixes two major issues:
+                            // 1. Apps reinstalling to wrong location (e.g., user space -> private space)
+                            // 2. Apps installing to wrong user profile (e.g., main user -> work profile)
+                            
+                            // Get the APK installation path to determine storage location
                             Shell.Result pathResult = Shell.cmd(
                                     "pm path " + packageName
                             ).exec();
@@ -231,7 +245,7 @@ public class MainActivity extends AppCompatActivity {
                                 
                                 // Determine install location from APK path
                                 // Internal storage: /data/app/...
-                                // External/adoptable storage: /mnt/.../app/...
+                                // External/adoptable storage: /mnt/.../app/... or /storage/...
                                 if (apkPath.startsWith("/data/app/")) {
                                     installLocation = "internal";
                                 } else if (apkPath.contains("/mnt/") || apkPath.contains("/storage/")) {
@@ -239,7 +253,8 @@ public class MainActivity extends AppCompatActivity {
                                 }
                             }
                             
-                            // Detect user ID
+                            // Detect which user/profile the app is installed for
+                            // This is important for devices with work profiles or multiple users
                             Shell.Result userResult = Shell.cmd(
                                     "pm list packages --user all | grep '" + packageName + "$'"
                             ).exec();
@@ -312,9 +327,16 @@ public class MainActivity extends AppCompatActivity {
                                 });
                                 
                                 // Build install command with location and user preservation
+                                // This ensures the app reinstalls to the same location and user context
+                                // as the original installation, preventing issues like:
+                                // - User space apps moving to private space
+                                // - Main user apps moving to work profile
                                 StringBuilder installCmd = new StringBuilder("pm install -d -r");
                                 
-                                // Preserve install location
+                                // Preserve install location using --install-location flag
+                                // 0 = auto (let system decide)
+                                // 1 = internal storage only
+                                // 2 = external storage (SD card or adoptable storage)
                                 if ("internal".equals(finalInstallLocation)) {
                                     installCmd.append(" --install-location 1"); // Force internal only
                                 } else if ("external".equals(finalInstallLocation)) {
@@ -323,7 +345,8 @@ public class MainActivity extends AppCompatActivity {
                                     installCmd.append(" --install-location 0"); // Auto
                                 }
                                 
-                                // Preserve user context if not primary user
+                                // Preserve user context using --user flag
+                                // This is critical for multi-user devices and work profiles
                                 if (!"0".equals(finalUserId)) {
                                     installCmd.append(" --user ").append(finalUserId);
                                 }

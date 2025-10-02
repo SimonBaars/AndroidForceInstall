@@ -152,13 +152,20 @@ The app uses `pm install` rather than directly replacing APK files because:
 - The current approach works within Android's security model
 - See APK_REPLACEMENT_DISCUSSION.md for detailed analysis
 
+## Related Documentation
+
+For more information on signature mismatch handling:
+- **[SIGNATURE_MISMATCH_FIXES.md](SIGNATURE_MISMATCH_FIXES.md)**: Summary of implemented fixes for installation location and data preservation issues
+- **[APK_REPLACEMENT_DISCUSSION.md](APK_REPLACEMENT_DISCUSSION.md)**: Technical analysis of APK filesystem replacement vs PackageManager install approaches
+
 ## Future Enhancements
 
 Potential improvements:
+- Runtime permission backup and restore
 - APK signature verification
 - Batch installation support
 - Installation history/logs
-- Support for split APKs (Android App Bundles)
+- Better support for split APKs (Android App Bundles)
 - Backup current version before downgrade
 - Dark mode support
 - Multiple language support
