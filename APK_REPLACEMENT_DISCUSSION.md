@@ -1,5 +1,19 @@
 # APK Filesystem Replacement vs PM Install: Technical Discussion
 
+## ⚠️ Looking for a Solution to Signature Mismatches?
+
+**If you're here because of signature mismatch errors:**
+
+- ✅ **BEST solution**: Re-sign the APK with the original key
+  - See [SIGNATURE_MISMATCH_GUIDE.md](SIGNATURE_MISMATCH_GUIDE.md) for step-by-step instructions
+  - Quick reference: [QUICK_REFERENCE.md](QUICK_REFERENCE.md)
+  
+- ❌ **Filesystem replacement does NOT solve signature mismatches**
+  - Android will refuse to run the app anyway
+  - Read below for technical explanation
+
+---
+
 ## Problem Statement
 
 When handling signature mismatches, the current implementation uses `pm uninstall` followed by `pm install`. This approach has two critical issues:
