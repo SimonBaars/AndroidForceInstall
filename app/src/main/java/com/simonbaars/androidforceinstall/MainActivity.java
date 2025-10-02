@@ -215,6 +215,52 @@ public class MainActivity extends AppCompatActivity {
                             String extBackupPath = "/data/local/tmp/" + packageName + "_ext_backup";
                             
                             runOnUiThread(() -> {
+                                statusText.setText(R.string.detecting_install_location);
+                            });
+                            
+                            // Detect current install location and user context before uninstall
+                            Shell.Result pathResult = Shell.cmd(
+                                    "pm path " + packageName
+                            ).exec();
+                            
+                            String installLocation = "auto";
+                            String userId = "0"; // Default to primary user
+                            
+                            if (pathResult.isSuccess() && !pathResult.getOut().isEmpty()) {
+                                String apkPath = pathResult.getOut().get(0).replace("package:", "");
+                                
+                                // Determine install location from APK path
+                                // Internal storage: /data/app/...
+                                // External/adoptable storage: /mnt/.../app/...
+                                if (apkPath.startsWith("/data/app/")) {
+                                    installLocation = "internal";
+                                } else if (apkPath.contains("/mnt/") || apkPath.contains("/storage/")) {
+                                    installLocation = "external";
+                                }
+                            }
+                            
+                            // Detect user ID
+                            Shell.Result userResult = Shell.cmd(
+                                    "pm list packages --user all | grep '" + packageName + "$'"
+                            ).exec();
+                            
+                            if (userResult.isSuccess() && !userResult.getOut().isEmpty()) {
+                                for (String line : userResult.getOut()) {
+                                    // Format: package:<name> uid:<uid> user:<userId>
+                                    if (line.contains("user:")) {
+                                        String[] parts = line.split("user:");
+                                        if (parts.length > 1) {
+                                            userId = parts[1].trim();
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            final String finalInstallLocation = installLocation;
+                            final String finalUserId = userId;
+                            
+                            runOnUiThread(() -> {
                                 statusText.setText(getString(R.string.backing_up_data, pkgName));
                             });
                             
@@ -265,10 +311,27 @@ public class MainActivity extends AppCompatActivity {
                                     statusText.setText(R.string.installing_after_uninstall);
                                 });
                                 
-                                // Try installing again
-                                Shell.Result retryResult = Shell.cmd(
-                                        "pm install -d -r \"" + apkPath + "\""
-                                ).exec();
+                                // Build install command with location and user preservation
+                                StringBuilder installCmd = new StringBuilder("pm install -d -r");
+                                
+                                // Preserve install location
+                                if ("internal".equals(finalInstallLocation)) {
+                                    installCmd.append(" --install-location 1"); // Force internal only
+                                } else if ("external".equals(finalInstallLocation)) {
+                                    installCmd.append(" --install-location 2"); // Force external only
+                                } else {
+                                    installCmd.append(" --install-location 0"); // Auto
+                                }
+                                
+                                // Preserve user context if not primary user
+                                if (!"0".equals(finalUserId)) {
+                                    installCmd.append(" --user ").append(finalUserId);
+                                }
+                                
+                                installCmd.append(" \"").append(apkPath).append("\"");
+                                
+                                // Try installing again with preserved location and user context
+                                Shell.Result retryResult = Shell.cmd(installCmd.toString()).exec();
                                 
                                 if (retryResult.isSuccess()) {
                                     runOnUiThread(() -> {
