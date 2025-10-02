@@ -11,7 +11,12 @@
     <string name="installing">Installing...</string>
     <string name="root_granted">Root access granted</string>
     <string name="root_denied">Root access denied. This app cannot function without root.</string>
+    <string name="backing_up_data">Backing up app data for %s...</string>
     <string name="uninstalling_package">Uninstalling existing package %s...</string>
     <string name="installing_after_uninstall">Reinstalling APK...</string>
+    <string name="restoring_data">Restoring app data...</string>
+    <string name="data_restore_success">App data restored successfully</string>
+    <string name="data_restore_warning">Installation successful but data restore may have issues</string>
+    <string name="backup_error">Backup failed: %s</string>
     <string name="uninstall_error">Uninstall failed: %s</string>
 </resources>

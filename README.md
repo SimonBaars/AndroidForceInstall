@@ -7,7 +7,7 @@ Root app which can downgrade apps or install incompatible versions of existing a
 - **Root-based Force Installation**: Uses root access to bypass Android's normal installation restrictions
 - **Downgrade Apps**: Install older versions of apps over newer ones
 - **Install Incompatible Versions**: Force install apps that Android would normally reject
-- **Signature Mismatch Handling**: Automatically detects and handles signature mismatches by uninstalling the existing app and reinstalling
+- **Signature Mismatch Handling**: Automatically detects and handles signature mismatches by backing up app data, uninstalling, reinstalling, and restoring data
 - **Simple UI**: Easy-to-use interface with file picker for selecting APK files
 
 ## Requirements
@@ -27,8 +27,10 @@ The app uses the `libsu` library to execute shell commands with root privileges.
    - `-r` flag replaces the existing application
 4. If installation fails due to signature mismatch (INSTALL_FAILED_UPDATE_INCOMPATIBLE):
    - Automatically extracts the package name from the APK
+   - Backs up the existing app's data directories (`/data/data` and `/storage/emulated/0/Android/data`)
    - Uninstalls the existing app with mismatched signature
    - Reinstalls the new APK
+   - Restores the backed-up app data with correct ownership and SELinux contexts
 
 ## Usage
 

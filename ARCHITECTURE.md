@@ -57,8 +57,17 @@ The main activity handles:
    - `-r`: Replace existing package
 5. If installation fails with signature mismatch (INSTALL_FAILED_UPDATE_INCOMPATIBLE):
    - Extract package name using `aapt dump badging`
+   - Get current app UID for permission restoration
+   - Backup app data directories to `/data/local/tmp/`
+     - Internal data: `/data/data/<package>`
+     - External data: `/storage/emulated/0/Android/data/<package>`
    - Execute `pm uninstall <package>` to remove existing app
    - Retry installation with `pm install -d -r <path>`
+   - Get new app UID
+   - Restore backed-up data to original locations
+   - Fix ownership using `chown` with new UID
+   - Restore SELinux contexts using `restorecon`
+   - Clean up temporary backup files
 6. Display success or error message
 
 ## Dependencies
@@ -122,10 +131,11 @@ The main activity handles:
 ### APK Installation
 - Bypasses Android's version checking
 - Can install incompatible versions
-- Handles signature mismatches by uninstalling and reinstalling
+- Handles signature mismatches by backing up data, uninstalling, and restoring
+- Attempts to preserve app data during signature mismatch handling
 - May cause app instability if used incorrectly
 - Users are responsible for APK source validation
-- Uninstalling removes all app data for the existing package
+- Data restoration may not work for all apps (e.g., those with encrypted data tied to signing key)
 
 ## Future Enhancements
 

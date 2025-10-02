@@ -190,7 +190,7 @@ public class MainActivity extends AppCompatActivity {
                         output.contains("Existing package") && output.contains("signatures do not match")) {
                         
                         runOnUiThread(() -> {
-                            statusText.setText("Signature mismatch detected. Attempting uninstall and reinstall...");
+                            statusText.setText("Signature mismatch detected. Attempting to preserve data...");
                         });
                         
                         // Extract package name from the APK
@@ -210,6 +210,48 @@ public class MainActivity extends AppCompatActivity {
                         
                         if (packageName != null) {
                             final String pkgName = packageName;
+                            String backupPath = "/data/local/tmp/" + packageName + "_backup";
+                            String dataPath = "/data/data/" + packageName;
+                            String extDataPath = "/storage/emulated/0/Android/data/" + packageName;
+                            String extBackupPath = "/data/local/tmp/" + packageName + "_ext_backup";
+                            
+                            runOnUiThread(() -> {
+                                statusText.setText(getString(R.string.backing_up_data, pkgName));
+                            });
+                            
+                            // Get the current UID for later restoration
+                            Shell.Result uidResult = Shell.cmd(
+                                    "pm list packages -U | grep " + packageName
+                            ).exec();
+                            
+                            String oldUid = null;
+                            if (uidResult.isSuccess() && !uidResult.getOut().isEmpty()) {
+                                String uidLine = uidResult.getOut().get(0);
+                                String[] parts = uidLine.split("uid:");
+                                if (parts.length > 1) {
+                                    oldUid = parts[1].trim();
+                                }
+                            }
+                            
+                            // Backup app data
+                            Shell.Result backupResult = Shell.cmd(
+                                    "rm -rf \"" + backupPath + "\"",
+                                    "cp -a \"" + dataPath + "\" \"" + backupPath + "\"",
+                                    "rm -rf \"" + extBackupPath + "\"",
+                                    "if [ -d \"" + extDataPath + "\" ]; then cp -a \"" + extDataPath + "\" \"" + extBackupPath + "\"; fi"
+                            ).exec();
+                            
+                            if (!backupResult.isSuccess()) {
+                                runOnUiThread(() -> {
+                                    String backupError = "Failed to backup app data";
+                                    statusText.setText(getString(R.string.backup_error, backupError));
+                                    Toast.makeText(MainActivity.this, getString(R.string.backup_error, backupError), Toast.LENGTH_LONG).show();
+                                    installButton.setEnabled(true);
+                                    selectButton.setEnabled(true);
+                                });
+                                return;
+                            }
+                            
                             runOnUiThread(() -> {
                                 statusText.setText(getString(R.string.uninstalling_package, pkgName));
                             });
@@ -229,8 +271,55 @@ public class MainActivity extends AppCompatActivity {
                                         "pm install -d -r \"" + apkPath + "\""
                                 ).exec();
                                 
+                                if (retryResult.isSuccess()) {
+                                    runOnUiThread(() -> {
+                                        statusText.setText(R.string.restoring_data);
+                                    });
+                                    
+                                    // Get the new UID
+                                    Shell.Result newUidResult = Shell.cmd(
+                                            "pm list packages -U | grep " + packageName
+                                    ).exec();
+                                    
+                                    String newUid = oldUid; // Default to old UID if we can't get new one
+                                    if (newUidResult.isSuccess() && !newUidResult.getOut().isEmpty()) {
+                                        String newUidLine = newUidResult.getOut().get(0);
+                                        String[] parts = newUidLine.split("uid:");
+                                        if (parts.length > 1) {
+                                            newUid = parts[1].trim();
+                                        }
+                                    }
+                                    
+                                    // Restore app data
+                                    Shell.Result restoreResult = Shell.cmd(
+                                            "rm -rf \"" + dataPath + "\"",
+                                            "cp -a \"" + backupPath + "\" \"" + dataPath + "\"",
+                                            "chown -R " + newUid + ":" + newUid + " \"" + dataPath + "\"",
+                                            "restorecon -RF \"" + dataPath + "\"",
+                                            "if [ -d \"" + extBackupPath + "\" ]; then rm -rf \"" + extDataPath + "\"; cp -a \"" + extBackupPath + "\" \"" + extDataPath + "\"; chown -R " + newUid + ":" + newUid + " \"" + extDataPath + "\"; restorecon -RF \"" + extDataPath + "\"; fi",
+                                            "rm -rf \"" + backupPath + "\"",
+                                            "rm -rf \"" + extBackupPath + "\""
+                                    ).exec();
+                                    
+                                    if (restoreResult.isSuccess()) {
+                                        runOnUiThread(() -> {
+                                            statusText.setText(R.string.data_restore_success);
+                                        });
+                                    } else {
+                                        runOnUiThread(() -> {
+                                            statusText.setText(R.string.data_restore_warning);
+                                        });
+                                    }
+                                }
+                                
                                 result = retryResult; // Update result for final handling
                             } else {
+                                // Cleanup backup on uninstall failure
+                                Shell.cmd(
+                                        "rm -rf \"" + backupPath + "\"",
+                                        "rm -rf \"" + extBackupPath + "\""
+                                ).exec();
+                                
                                 runOnUiThread(() -> {
                                     String uninstallError = uninstallResult.getOut().isEmpty() ? 
                                             "Unknown error during uninstall" : 
