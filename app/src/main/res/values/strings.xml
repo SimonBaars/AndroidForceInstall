@@ -11,4 +11,7 @@
     <string name="installing">Installing...</string>
     <string name="root_granted">Root access granted</string>
     <string name="root_denied">Root access denied. This app cannot function without root.</string>
+    <string name="uninstalling_package">Uninstalling existing package %s...</string>
+    <string name="installing_after_uninstall">Reinstalling APK...</string>
+    <string name="uninstall_error">Uninstall failed: %s</string>
 </resources>

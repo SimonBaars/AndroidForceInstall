@@ -180,14 +180,89 @@ public class MainActivity extends AppCompatActivity {
                         "pm install -d -r \"" + apkPath + "\""
                 ).exec();
 
+                // Check if installation failed due to signature mismatch
+                if (!result.isSuccess()) {
+                    String output = String.join("\n", result.getOut());
+                    
+                    // Check for signature mismatch errors
+                    if (output.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") || 
+                        output.contains("signatures do not match") ||
+                        output.contains("Existing package") && output.contains("signatures do not match")) {
+                        
+                        runOnUiThread(() -> {
+                            statusText.setText("Signature mismatch detected. Attempting uninstall and reinstall...");
+                        });
+                        
+                        // Extract package name from the APK
+                        Shell.Result packageResult = Shell.cmd(
+                                "aapt dump badging \"" + apkPath + "\" | grep package:\\ name"
+                        ).exec();
+                        
+                        String packageName = null;
+                        if (packageResult.isSuccess() && !packageResult.getOut().isEmpty()) {
+                            String packageLine = packageResult.getOut().get(0);
+                            int start = packageLine.indexOf("name='") + 6;
+                            int end = packageLine.indexOf("'", start);
+                            if (start > 5 && end > start) {
+                                packageName = packageLine.substring(start, end);
+                            }
+                        }
+                        
+                        if (packageName != null) {
+                            final String pkgName = packageName;
+                            runOnUiThread(() -> {
+                                statusText.setText(getString(R.string.uninstalling_package, pkgName));
+                            });
+                            
+                            // Uninstall the existing package
+                            Shell.Result uninstallResult = Shell.cmd(
+                                    "pm uninstall " + packageName
+                            ).exec();
+                            
+                            if (uninstallResult.isSuccess()) {
+                                runOnUiThread(() -> {
+                                    statusText.setText(R.string.installing_after_uninstall);
+                                });
+                                
+                                // Try installing again
+                                Shell.Result retryResult = Shell.cmd(
+                                        "pm install -d -r \"" + apkPath + "\""
+                                ).exec();
+                                
+                                result = retryResult; // Update result for final handling
+                            } else {
+                                runOnUiThread(() -> {
+                                    String uninstallError = uninstallResult.getOut().isEmpty() ? 
+                                            "Unknown error during uninstall" : 
+                                            String.join("\n", uninstallResult.getOut());
+                                    statusText.setText(getString(R.string.uninstall_error, uninstallError));
+                                    Toast.makeText(MainActivity.this, getString(R.string.uninstall_error, uninstallError), Toast.LENGTH_LONG).show();
+                                    installButton.setEnabled(true);
+                                    selectButton.setEnabled(true);
+                                });
+                                return;
+                            }
+                        } else {
+                            runOnUiThread(() -> {
+                                statusText.setText("Could not extract package name. Unable to uninstall.");
+                                Toast.makeText(MainActivity.this, "Could not extract package name", Toast.LENGTH_LONG).show();
+                                installButton.setEnabled(true);
+                                selectButton.setEnabled(true);
+                            });
+                            return;
+                        }
+                    }
+                }
+
+                final Shell.Result finalResult = result;
                 runOnUiThread(() -> {
-                    if (result.isSuccess()) {
+                    if (finalResult.isSuccess()) {
                         statusText.setText(R.string.install_success);
                         Toast.makeText(MainActivity.this, R.string.install_success, Toast.LENGTH_LONG).show();
                     } else {
-                        String error = result.getOut().isEmpty() ? 
+                        String error = finalResult.getOut().isEmpty() ? 
                                 "Unknown error" : 
-                                String.join("\n", result.getOut());
+                                String.join("\n", finalResult.getOut());
                         statusText.setText(getString(R.string.install_error, error));
                         Toast.makeText(MainActivity.this, getString(R.string.install_error, error), Toast.LENGTH_LONG).show();
                     }
