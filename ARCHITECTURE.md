@@ -55,7 +55,11 @@ The main activity handles:
 4. App executes root shell command: `pm install -d -r <path>`
    - `-d`: Allow version downgrades
    - `-r`: Replace existing package
-5. Display success or error message
+5. If installation fails with signature mismatch (INSTALL_FAILED_UPDATE_INCOMPATIBLE):
+   - Extract package name using `aapt dump badging`
+   - Execute `pm uninstall <package>` to remove existing app
+   - Retry installation with `pm install -d -r <path>`
+6. Display success or error message
 
 ## Dependencies
 
@@ -118,8 +122,10 @@ The main activity handles:
 ### APK Installation
 - Bypasses Android's version checking
 - Can install incompatible versions
+- Handles signature mismatches by uninstalling and reinstalling
 - May cause app instability if used incorrectly
 - Users are responsible for APK source validation
+- Uninstalling removes all app data for the existing package
 
 ## Future Enhancements
 
@@ -148,3 +154,5 @@ Potential improvements:
 - Graceful handling of missing root
 - Clear error messages for failed installations
 - File access errors are caught and reported
+- Automatic detection and handling of signature mismatch errors
+- User feedback during uninstall and reinstall process
