@@ -94,21 +94,35 @@ Due to Android's security model, these limitations are **UNAVOIDABLE**:
 ## Decision Flow: What Should You Do?
 
 ```
-Do you have the original signing key?
-│
-├─ YES → Re-sign the APK with the original key
-│        This is the BEST solution - no data loss!
-│
-└─ NO → Is preserving data critical?
-         │
-         ├─ YES → ⚠️ WARNING: Some data WILL be lost
-         │        Consider alternatives:
-         │        - Contact original developer for re-signed APK
-         │        - Export app data through app's backup feature
-         │        - Accept data loss and use AndroidForceInstall
-         │
-         └─ NO → Use AndroidForceInstall for uninstall/reinstall
-                  Most data will be preserved
+┌─────────────────────────────────────────────────────────────┐
+│         Signature Mismatch Error Detected                   │
+│  (INSTALL_FAILED_UPDATE_INCOMPATIBLE / signatures mismatch) │
+└─────────────────────────────────────────────────────────────┘
+                            ▼
+             ┌──────────────────────────────┐
+             │ Do you have the original     │
+             │ signing key (.jks/.keystore)?│
+             └──────────────────────────────┘
+                     ▼            ▼
+              ┌─────┘            └─────┐
+             YES                       NO
+              │                         │
+              ▼                         ▼
+    ┌──────────────────────┐   ┌──────────────────────────┐
+    │ ✅ BEST SOLUTION     │   │ ⚠️ ONLY OPTION          │
+    │                      │   │                          │
+    │ Re-sign the APK:     │   │ Use AndroidForceInstall: │
+    │ 1. Remove signature  │   │ 1. Shows warning dialog  │
+    │ 2. Sign with key     │   │ 2. Backups app data      │
+    │ 3. Install normally  │   │ 3. Uninstalls old app    │
+    │                      │   │ 4. Installs new app      │
+    │ Result:              │   │ 5. Restores data         │
+    │ • No data loss       │   │                          │
+    │ • No permission reset│   │ Result:                  │
+    │ • Perfect!           │   │ • Most data preserved    │
+    └──────────────────────┘   │ • Permissions reset ❌   │
+                               │ • Encrypted data lost ❌ │
+                               └──────────────────────────┘
 ```
 
 ## Common Scenarios
