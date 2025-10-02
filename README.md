@@ -36,6 +36,25 @@ The app uses the `libsu` library to execute shell commands with root privileges.
    
 **Note**: Some data loss may occur with signature changes. Apps that encrypt data using their signing key will lose that encrypted data. Runtime permissions will be reset to defaults (Android security requirement).
 
+## When to Use This App
+
+### ✅ Good Use Cases
+- **Downgrading apps** (installing older versions)
+- **Installing incompatible versions** that Android normally rejects
+- **Testing different app versions** with the same signature
+- **Installing modified APKs** when you accept data loss
+
+### ⚠️ Use With Caution
+- **Different signature than installed app**: This will uninstall/reinstall
+  - Runtime permissions will be reset
+  - Some data may be lost (especially encrypted data)
+  - See [SIGNATURE_MISMATCH_GUIDE.md](SIGNATURE_MISMATCH_GUIDE.md) for details
+
+### ❌ Better Alternatives Exist
+- **If you have the original signing key**: Re-sign the APK instead of using this app
+  - No data loss, no permission resets
+  - See [SIGNATURE_MISMATCH_GUIDE.md](SIGNATURE_MISMATCH_GUIDE.md) for instructions
+
 ## Usage
 
 1. Launch the app
@@ -43,6 +62,13 @@ The app uses the `libsu` library to execute shell commands with root privileges.
 3. Tap "Select APK File" to choose an APK from your file system
 4. Tap "Force Install" to install the selected APK
 5. The app will show installation status
+
+**Note**: If you see "Signature mismatch detected", the app will automatically:
+- Backup your app data
+- Uninstall the old app
+- Install the new app
+- Restore your app data
+- Some data loss may occur (see limitations above)
 
 ## Building
 
@@ -91,7 +117,24 @@ When handling signature mismatches, some limitations apply:
 - Apps that encrypt data with signing keys will lose that data
 - Installation location is preserved, but may not work for all scenarios
 
-For more details on signature mismatch handling, see:
+### ⚠️ Important: About Signature Mismatches
+
+**Seeing "signatures do not match" error?** 
+
+**Quick Answer**: [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - 30-second read
+
+**Full Guide**: [SIGNATURE_MISMATCH_GUIDE.md](SIGNATURE_MISMATCH_GUIDE.md) - Complete documentation
+
+**Key Points**:
+1. ✅ **Best solution**: Re-sign the APK with original key (no data loss!)
+2. ⚠️ **Fallback**: Use this app for uninstall/reinstall (some data loss)
+3. ❌ **Not possible**: Force APK to match different signature
+
+**TL;DR**: If you have the original signing key, **re-sign the APK** instead of using uninstall/reinstall. If you don't have the key, uninstall/reinstall is your only option, and some data loss is inevitable.
+
+For more technical details, see:
+- [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - Quick 30-second guide
+- [SIGNATURE_MISMATCH_GUIDE.md](SIGNATURE_MISMATCH_GUIDE.md) - Complete guide to signature mismatches
 - [SIGNATURE_MISMATCH_FIXES.md](SIGNATURE_MISMATCH_FIXES.md) - Summary of fixes and limitations
 - [APK_REPLACEMENT_DISCUSSION.md](APK_REPLACEMENT_DISCUSSION.md) - Technical analysis of approaches
 

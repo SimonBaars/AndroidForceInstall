@@ -1,5 +1,22 @@
 # Signature Mismatch Installation Fixes
 
+## ⚠️ IMPORTANT: Read This First
+
+**If you're experiencing signature mismatch errors:**
+
+- ✅ **BEST solution**: Re-sign the APK with the original key (if you have it)
+  - See [SIGNATURE_MISMATCH_GUIDE.md](SIGNATURE_MISMATCH_GUIDE.md) for instructions
+  - This avoids ALL data loss and permission resets
+  
+- ⚠️ **Only alternative**: Uninstall and reinstall (what this app does)
+  - Some data loss is inevitable
+  - Permissions will be reset
+  - Read [QUICK_REFERENCE.md](QUICK_REFERENCE.md) for quick guidance
+
+**You CANNOT force an APK to match a different signature** - signatures are cryptographic and cannot be forged.
+
+---
+
 ## Issues Addressed
 
 This document summarizes the fixes implemented to address two critical issues when handling signature mismatches during app installation:

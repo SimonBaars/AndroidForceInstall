@@ -200,6 +200,54 @@ public class MainActivity extends AppCompatActivity {
                         output.contains("signatures do not match") ||
                         output.contains("Existing package") && output.contains("signatures do not match")) {
                         
+                        // Show warning dialog to user about signature mismatch
+                        final boolean[] userConfirmed = {false};
+                        final Object lock = new Object();
+                        
+                        runOnUiThread(() -> {
+                            new AlertDialog.Builder(MainActivity.this)
+                                    .setTitle(R.string.signature_mismatch_title)
+                                    .setMessage(R.string.signature_mismatch_message)
+                                    .setPositiveButton(R.string.signature_mismatch_continue, (dialog, which) -> {
+                                        synchronized (lock) {
+                                            userConfirmed[0] = true;
+                                            lock.notify();
+                                        }
+                                    })
+                                    .setNegativeButton(R.string.signature_mismatch_cancel, (dialog, which) -> {
+                                        synchronized (lock) {
+                                            userConfirmed[0] = false;
+                                            lock.notify();
+                                        }
+                                    })
+                                    .setCancelable(false)
+                                    .show();
+                        });
+                        
+                        // Wait for user response
+                        synchronized (lock) {
+                            try {
+                                lock.wait();
+                            } catch (InterruptedException e) {
+                                runOnUiThread(() -> {
+                                    statusText.setText("Operation cancelled");
+                                    installButton.setEnabled(true);
+                                    selectButton.setEnabled(true);
+                                });
+                                return;
+                            }
+                        }
+                        
+                        // If user cancelled, stop here
+                        if (!userConfirmed[0]) {
+                            runOnUiThread(() -> {
+                                statusText.setText("Installation cancelled by user");
+                                installButton.setEnabled(true);
+                                selectButton.setEnabled(true);
+                            });
+                            return;
+                        }
+                        
                         runOnUiThread(() -> {
                             statusText.setText("Signature mismatch detected. Attempting to preserve data...");
                         });

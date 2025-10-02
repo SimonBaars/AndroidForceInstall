@@ -20,4 +20,8 @@
     <string name="backup_error">Backup failed: %s</string>
     <string name="uninstall_error">Uninstall failed: %s</string>
     <string name="detecting_install_location">Detecting install location and user context...</string>
+    <string name="signature_mismatch_title">Signature Mismatch Detected</string>
+    <string name="signature_mismatch_message">The APK you\'re installing has a different signature than the installed app.\n\nThis app will:\n• Backup app data\n• Uninstall old app\n• Install new app\n• Restore app data\n\n⚠️ WARNING:\n• Runtime permissions WILL be reset\n• Encrypted data MAY be lost\n• You must re-grant permissions after install\n\nBetter solution: If you have the original signing key, re-sign the APK instead.\n\nSee README.md for details.\n\nContinue?</string>
+    <string name="signature_mismatch_continue">Continue Anyway</string>
+    <string name="signature_mismatch_cancel">Cancel</string>
 </resources>
