@@ -27,14 +27,13 @@ The app uses the `libsu` library to execute shell commands with root privileges.
    - `-r` flag replaces the existing application
 4. If installation fails due to signature mismatch (INSTALL_FAILED_UPDATE_INCOMPATIBLE):
    - Automatically extracts the package name from the APK using Android's PackageManager
-   - Detects and preserves the original install location (internal vs external storage)
-   - Detects and preserves the user context (main user vs work profile)
-   - Backs up the existing app's data directories (`/data/data` and `/storage/emulated/0/Android/data`)
-   - Uninstalls the existing app with mismatched signature
-   - Reinstalls the new APK to the same location and user context
-   - Restores the backed-up app data with correct ownership and SELinux contexts
+   - Finds the installed APK location using `pm path`
+   - Force-stops the running app
+   - Replaces the APK file directly on the filesystem
+   - Sets proper file permissions and SELinux contexts
+   - Refreshes Package Manager cache
    
-**Note**: Some data loss may occur with signature changes. Apps that encrypt data using their signing key will lose that encrypted data. Runtime permissions will be reset to defaults (Android security requirement).
+**Note**: This approach preserves ALL app data since no uninstall occurs. However, the app may fail to launch due to Android's signature verification. A device reboot may be required for the app to work properly.
 
 ## Usage
 
@@ -86,10 +85,11 @@ This app **requires** root access to function. When you first launch it:
 
 ## Known Issues & Limitations
 
-When handling signature mismatches, some limitations apply:
-- Runtime permissions will be reset (Android security requirement)
-- Apps that encrypt data with signing keys will lose that data
-- Installation location is preserved, but may not work for all scenarios
+When handling signature mismatches with direct APK replacement:
+- App may fail to launch due to Android's signature verification
+- Device reboot may be required for app to work properly
+- Split APKs (Android App Bundles) may not work correctly
+- May not work on all Android versions or custom ROMs
 
 For more details on signature mismatch handling, see:
 - [SIGNATURE_MISMATCH_FIXES.md](SIGNATURE_MISMATCH_FIXES.md) - Summary of fixes and limitations

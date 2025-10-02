@@ -200,17 +200,36 @@ settings get <namespace> <key>
 settings put <namespace> <key> <value>
 ```
 
-## Recommended Approach
+## Implemented Approach
 
-### For This Project: Improve Current PM Install Method
+### Direct APK Filesystem Replacement (IMPLEMENTED)
 
-**DO NOT use filesystem replacement** because:
-1. Android will refuse to run apps with mismatched signatures
-2. Too many edge cases and Android version differences
-3. Could break system stability
-4. Won't solve the core issue (signature mismatch)
+**The project now uses direct APK filesystem replacement** despite the known limitations:
 
-**Instead, improve the current approach:**
+**Implementation details:**
+1. Detects installed APK location via `pm path <package>`
+2. Force-stops the running app with `am force-stop`
+3. Directly replaces the APK file(s) on the filesystem
+4. Sets proper permissions (chmod 644, chown system:system)
+5. Restores SELinux contexts with restorecon
+6. Attempts to refresh Package Manager cache
+
+**Known Issues:**
+1. Android may refuse to run apps with mismatched signatures
+2. Split APKs may not work correctly (only base.apk is replaced)
+3. Device may require reboot for changes to take effect
+4. PackageManager cache may become out of sync
+5. May not work on all Android versions
+
+**Advantages:**
+- Preserves ALL app data (no backup/restore needed)
+- UID never changes
+- Faster than uninstall/reinstall
+- Installation location preserved
+
+### Alternative: PM Install Method (Previous Implementation)
+
+**The previous approach used pm install with backup/restore:**
 
 #### Fix 1: Determine and Preserve Install Location
 ```java
