@@ -241,14 +241,14 @@ public class MainActivity extends AppCompatActivity {
                             String userId = "0"; // Default to primary user
                             
                             if (pathResult.isSuccess() && !pathResult.getOut().isEmpty()) {
-                                String apkPath = pathResult.getOut().get(0).replace("package:", "");
+                                String installedApkPath = pathResult.getOut().get(0).replace("package:", "");
                                 
                                 // Determine install location from APK path
                                 // Internal storage: /data/app/...
                                 // External/adoptable storage: /mnt/.../app/... or /storage/...
-                                if (apkPath.startsWith("/data/app/")) {
+                                if (installedApkPath.startsWith("/data/app/")) {
                                     installLocation = "internal";
-                                } else if (apkPath.contains("/mnt/") || apkPath.contains("/storage/")) {
+                                } else if (installedApkPath.contains("/mnt/") || installedApkPath.contains("/storage/")) {
                                     installLocation = "external";
                                 }
                             }
