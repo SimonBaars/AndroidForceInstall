@@ -2,6 +2,8 @@ package com.simonbaars.androidforceinstall;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
@@ -193,19 +195,16 @@ public class MainActivity extends AppCompatActivity {
                             statusText.setText("Signature mismatch detected. Attempting to preserve data...");
                         });
                         
-                        // Extract package name from the APK
-                        Shell.Result packageResult = Shell.cmd(
-                                "aapt dump badging \"" + apkPath + "\" | grep package:\\ name"
-                        ).exec();
-                        
+                        // Extract package name from the APK using PackageManager
                         String packageName = null;
-                        if (packageResult.isSuccess() && !packageResult.getOut().isEmpty()) {
-                            String packageLine = packageResult.getOut().get(0);
-                            int start = packageLine.indexOf("name='") + 6;
-                            int end = packageLine.indexOf("'", start);
-                            if (start > 5 && end > start) {
-                                packageName = packageLine.substring(start, end);
+                        try {
+                            PackageManager pm = getPackageManager();
+                            PackageInfo info = pm.getPackageArchiveInfo(apkPath, 0);
+                            if (info != null) {
+                                packageName = info.packageName;
                             }
+                        } catch (Exception e) {
+                            // Failed to get package name from PackageManager
                         }
                         
                         if (packageName != null) {
