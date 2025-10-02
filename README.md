@@ -27,10 +27,14 @@ The app uses the `libsu` library to execute shell commands with root privileges.
    - `-r` flag replaces the existing application
 4. If installation fails due to signature mismatch (INSTALL_FAILED_UPDATE_INCOMPATIBLE):
    - Automatically extracts the package name from the APK using Android's PackageManager
+   - Detects and preserves the original install location (internal vs external storage)
+   - Detects and preserves the user context (main user vs work profile)
    - Backs up the existing app's data directories (`/data/data` and `/storage/emulated/0/Android/data`)
    - Uninstalls the existing app with mismatched signature
-   - Reinstalls the new APK
+   - Reinstalls the new APK to the same location and user context
    - Restores the backed-up app data with correct ownership and SELinux contexts
+   
+**Note**: Some data loss may occur with signature changes. Apps that encrypt data using their signing key will lose that encrypted data. Runtime permissions will be reset to defaults (Android security requirement).
 
 ## Usage
 
@@ -79,6 +83,17 @@ This app **requires** root access to function. When you first launch it:
 1. You'll see a root access check
 2. Your root manager will prompt you to grant access
 3. The app will confirm when root access is granted
+
+## Known Issues & Limitations
+
+When handling signature mismatches, some limitations apply:
+- Runtime permissions will be reset (Android security requirement)
+- Apps that encrypt data with signing keys will lose that data
+- Installation location is preserved, but may not work for all scenarios
+
+For more details on signature mismatch handling, see:
+- [SIGNATURE_MISMATCH_FIXES.md](SIGNATURE_MISMATCH_FIXES.md) - Summary of fixes and limitations
+- [APK_REPLACEMENT_DISCUSSION.md](APK_REPLACEMENT_DISCUSSION.md) - Technical analysis of approaches
 
 ## Disclaimer
 

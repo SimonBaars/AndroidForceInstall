@@ -57,12 +57,16 @@ The main activity handles:
    - `-r`: Replace existing package
 5. If installation fails with signature mismatch (INSTALL_FAILED_UPDATE_INCOMPATIBLE):
    - Extract package name using Android's `PackageManager.getPackageArchiveInfo()`
+   - Detect current install location (internal/external storage) using `pm path`
+   - Detect current user context using `pm list packages --user all`
    - Get current app UID for permission restoration
    - Backup app data directories to `/data/local/tmp/`
      - Internal data: `/data/data/<package>`
      - External data: `/storage/emulated/0/Android/data/<package>`
    - Execute `pm uninstall <package>` to remove existing app
-   - Retry installation with `pm install -d -r <path>`
+   - Retry installation with `pm install -d -r --install-location <same> --user <same> <path>`
+     - Preserves original install location (internal vs external)
+     - Preserves user context (main user vs work profile)
    - Get new app UID
    - Restore backed-up data to original locations
    - Fix ownership using `chown` with new UID
@@ -132,18 +136,36 @@ The main activity handles:
 - Bypasses Android's version checking
 - Can install incompatible versions
 - Handles signature mismatches by backing up data, uninstalling, and restoring
+- Preserves installation location (internal vs external storage) and user context
 - Attempts to preserve app data during signature mismatch handling
 - May cause app instability if used incorrectly
 - Users are responsible for APK source validation
 - Data restoration may not work for all apps (e.g., those with encrypted data tied to signing key)
+- Runtime permissions will be reset to defaults (Android security requirement)
+
+### Why Not Replace APK on Filesystem?
+The app uses `pm install` rather than directly replacing APK files because:
+- Android's runtime verification prevents mismatched signatures from running
+- PackageManager cache synchronization is complex and error-prone
+- Split APK handling would be extremely complicated
+- System stability could be compromised
+- The current approach works within Android's security model
+- See APK_REPLACEMENT_DISCUSSION.md for detailed analysis
+
+## Related Documentation
+
+For more information on signature mismatch handling:
+- **[SIGNATURE_MISMATCH_FIXES.md](SIGNATURE_MISMATCH_FIXES.md)**: Summary of implemented fixes for installation location and data preservation issues
+- **[APK_REPLACEMENT_DISCUSSION.md](APK_REPLACEMENT_DISCUSSION.md)**: Technical analysis of APK filesystem replacement vs PackageManager install approaches
 
 ## Future Enhancements
 
 Potential improvements:
+- Runtime permission backup and restore
 - APK signature verification
 - Batch installation support
 - Installation history/logs
-- Support for split APKs (Android App Bundles)
+- Better support for split APKs (Android App Bundles)
 - Backup current version before downgrade
 - Dark mode support
 - Multiple language support

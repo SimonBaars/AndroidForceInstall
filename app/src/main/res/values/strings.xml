@@ -19,4 +19,5 @@
     <string name="data_restore_warning">Installation successful but data restore may have issues</string>
     <string name="backup_error">Backup failed: %s</string>
     <string name="uninstall_error">Uninstall failed: %s</string>
+    <string name="detecting_install_location">Detecting install location and user context...</string>
 </resources>
