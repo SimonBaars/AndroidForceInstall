@@ -56,7 +56,7 @@ The main activity handles:
    - `-d`: Allow version downgrades
    - `-r`: Replace existing package
 5. If installation fails with signature mismatch (INSTALL_FAILED_UPDATE_INCOMPATIBLE):
-   - Extract package name using `aapt dump badging`
+   - Extract package name using Android's `PackageManager.getPackageArchiveInfo()`
    - Get current app UID for permission restoration
    - Backup app data directories to `/data/local/tmp/`
      - Internal data: `/data/data/<package>`
