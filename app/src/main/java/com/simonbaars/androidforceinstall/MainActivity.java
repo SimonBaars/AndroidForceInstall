@@ -2,8 +2,10 @@ package com.simonbaars.androidforceinstall;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -14,6 +16,8 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.topjohnwu.superuser.Shell;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
@@ -93,16 +97,66 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == PICK_APK_REQUEST && resultCode == Activity.RESULT_OK) {
             if (data != null && data.getData() != null) {
                 Uri uri = data.getData();
-                String path = uri.getPath();
                 
-                if (path != null) {
-                    selectedApkFile = new File(path);
-                    selectedFileText.setText(getString(R.string.selected_file, selectedApkFile.getName()));
-                    installButton.setEnabled(true);
-                    statusText.setText("");
+                // Copy the file to cache directory for installation
+                new Thread(() -> {
+                    try {
+                        String fileName = getFileName(uri);
+                        File cacheFile = new File(getCacheDir(), fileName != null ? fileName : "temp.apk");
+                        
+                        InputStream inputStream = getContentResolver().openInputStream(uri);
+                        if (inputStream != null) {
+                            FileOutputStream outputStream = new FileOutputStream(cacheFile);
+                            byte[] buffer = new byte[4096];
+                            int bytesRead;
+                            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                                outputStream.write(buffer, 0, bytesRead);
+                            }
+                            outputStream.close();
+                            inputStream.close();
+                            
+                            runOnUiThread(() -> {
+                                selectedApkFile = cacheFile;
+                                selectedFileText.setText(getString(R.string.selected_file, fileName != null ? fileName : "temp.apk"));
+                                installButton.setEnabled(true);
+                                statusText.setText("");
+                            });
+                        } else {
+                            runOnUiThread(() -> Toast.makeText(this, "Could not read file", Toast.LENGTH_SHORT).show());
+                        }
+                    } catch (Exception e) {
+                        runOnUiThread(() -> Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                    }
+                }).start();
+            }
+        }
+    }
+    
+    private String getFileName(Uri uri) {
+        String result = null;
+        if (uri.getScheme().equals("content")) {
+            Cursor cursor = getContentResolver().query(uri, null, null, null, null);
+            try {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if (nameIndex >= 0) {
+                        result = cursor.getString(nameIndex);
+                    }
+                }
+            } finally {
+                if (cursor != null) {
+                    cursor.close();
                 }
             }
         }
+        if (result == null) {
+            result = uri.getPath();
+            int cut = result.lastIndexOf('/');
+            if (cut != -1) {
+                result = result.substring(cut + 1);
+            }
+        }
+        return result;
     }
 
     private void installApk() {
