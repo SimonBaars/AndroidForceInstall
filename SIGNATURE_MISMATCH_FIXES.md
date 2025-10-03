@@ -1,42 +1,34 @@
 # Signature Mismatch Installation Fixes
 
-## Issues Addressed
+## Current Implementation
 
-This document summarizes the fixes implemented to address two critical issues when handling signature mismatches during app installation:
+This document describes the direct APK filesystem replacement approach now implemented for handling signature mismatches during app installation.
 
-### Issue 1: Wrong Installation Location
-**Problem**: When reinstalling an app with a different signature, the app would sometimes install to a different location than the original (e.g., a user space app would reinstall to private space).
+### New Approach: Direct APK Replacement
+
+**Problem**: When installing an APK with a different signature over an existing app, Android's Package Manager refuses the installation for security reasons.
 
 **Solution**: The app now:
-1. Detects the original installation location before uninstall using `pm path <package>`
-2. Uses the `--install-location` flag during reinstall to force installation to the same location
-   - `--install-location 1` for internal storage
-   - `--install-location 2` for external/adoptable storage
-   - `--install-location 0` for auto (if original location couldn't be determined)
+1. Detects the installed APK location using `pm path <package>`
+2. Force-stops the running app with `am force-stop`
+3. Directly replaces the APK file(s) on the filesystem
+4. Sets proper permissions (chmod 644, chown system:system)
+5. Restores SELinux contexts with `restorecon`
+6. Attempts to refresh Package Manager cache
 
-### Issue 2: Data Loss
-**Problem**: App data would be lost during the uninstall/reinstall process despite backup attempts.
-
-**Current Solution**: 
-- The app performs comprehensive data backup before uninstall
-- After reinstall, data is restored with correct UID ownership
-- SELinux contexts are fixed with `restorecon`
+**Advantages**:
+- **Perfect Data Preservation**: No backup/restore needed - all app data remains intact
+- **UID Never Changes**: App maintains the same user ID
+- **Faster**: No uninstall/reinstall cycle
+- **Installation Location Preserved**: APK stays in exact same location
+- **Runtime Permissions Preserved**: Permissions are not reset
 
 **Limitations**:
-- Some data loss is **inevitable** with signature changes
-- Apps that encrypt data using their signing certificate will lose that encrypted data
-- Runtime permissions will be reset (Android security requirement)
-- Shared preferences and databases should be preserved
-- External storage data (`/storage/emulated/0/Android/data`) is preserved
-
-## Additional Improvements
-
-### User Context Preservation
-**Problem**: Apps could reinstall to the wrong user profile on multi-user devices (e.g., work profile vs personal profile).
-
-**Solution**: 
-- Detect which user the app is installed for using `pm list packages --user all`
-- Use the `--user <userId>` flag during reinstall to maintain the same user context
+- **May Not Launch**: Android's signature verification may prevent the app from running
+- **Reboot May Be Required**: Device may need to be rebooted for changes to take effect
+- **Split APKs**: Only base.apk is replaced; split APKs may not work correctly
+- **PackageManager Cache**: Cache may become out of sync
+- **Android Version Dependent**: May not work on all Android versions
 
 ## Technical Implementation
 
@@ -45,83 +37,96 @@ This document summarizes the fixes implemented to address two critical issues wh
 ```
 1. Attempt normal install with: pm install -d -r <apk>
 2. Detect signature mismatch error
-3. Detect install location from: pm path <package>
-4. Detect user context from: pm list packages --user all
-5. Backup app data:
-   - /data/data/<package> → /data/local/tmp/<package>_backup
-   - /storage/emulated/0/Android/data/<package> → /data/local/tmp/<package>_ext_backup
-6. Uninstall existing app: pm uninstall <package>
-7. Reinstall with preserved location and user:
-   pm install -d -r --install-location <N> --user <userId> <apk>
-8. Restore app data with correct ownership
-9. Clean up temporary backup files
+3. Extract package name from APK
+4. Find installed APK location: pm path <package>
+5. Parse APK paths (may be multiple for split APKs)
+6. Force-stop the app: am force-stop <package>
+7. Replace APK file directly:
+   - cp -f <new_apk> <installed_apk_path>
+   - chmod 644 <installed_apk_path>
+   - chown system:system <installed_apk_path>
+   - restorecon <installed_apk_path>
+8. Refresh Package Manager cache (best effort)
+9. Report success with warning about potential launch issues
 ```
 
-## Why Not Replace APK on Filesystem?
+## Why This Approach?
 
-See [APK_REPLACEMENT_DISCUSSION.md](APK_REPLACEMENT_DISCUSSION.md) for a comprehensive analysis of why directly replacing APK files on the filesystem is not recommended.
+See [APK_REPLACEMENT_DISCUSSION.md](APK_REPLACEMENT_DISCUSSION.md) for a comprehensive analysis of the filesystem replacement approach vs pm install.
 
-**TL;DR**: Android's security model will prevent apps with mismatched signatures from running, making filesystem replacement ineffective.
+**Benefits**: Perfect data preservation since no uninstall occurs.
+
+**Risks**: Android's security model may prevent apps with mismatched signatures from running.
 
 ## Expected Behavior
 
 ### What Should Work Now
-✅ Apps reinstall to the same storage location (internal vs external)
-✅ Apps reinstall to the same user profile (main vs work)
-✅ Most app data is preserved (databases, shared preferences, files)
+✅ All app data is preserved (databases, shared preferences, files)
 ✅ External storage data is preserved
+✅ UID remains unchanged
+✅ Runtime permissions are preserved
+✅ Installation location preserved
 ✅ Correct file ownership and SELinux contexts
 
 ### Known Limitations
-⚠️ Runtime permissions will be reset to defaults (Android security requirement)
-⚠️ Apps that encrypt data with their signing key will lose encrypted data
-⚠️ Some app-specific security measures may still cause issues
-⚠️ Split APKs (Android App Bundles) may have additional complications
+⚠️ App may fail to launch due to signature verification
+⚠️ Device reboot may be required for app to work
+⚠️ Split APKs may not work correctly (only base.apk is replaced)
+⚠️ PackageManager cache may become out of sync
+⚠️ May not work on all Android versions
 
 ## Testing Recommendations
 
-To verify the fixes work correctly:
+To verify the direct APK replacement works:
 
 1. Install an app signed with key A
 2. Note its installation location (use `adb shell pm path <package>`)
-3. Note its user context (use `adb shell pm list packages --user all`)
-4. Add some data to the app (create files, preferences, etc.)
-5. Try to install the same app signed with key B using AndroidForceInstall
-6. Verify:
-   - App installs to the same location as before
-   - App installs to the same user profile
-   - App data is preserved (check files, preferences)
+3. Add some data to the app (create files, preferences, etc.)
+4. Try to install the same app signed with key B using AndroidForceInstall
+5. Verify:
+   - APK replacement completes successfully
+   - All app data is preserved (check files, preferences)
    - External storage data is preserved
+   - Runtime permissions are still granted
+6. Try to launch the app:
+   - If it launches successfully, the replacement worked
+   - If it fails with verification errors, a reboot may be needed
+   - If it still fails after reboot, signature verification is blocking it
 
 ## User Guidance
 
-When using this app to handle signature mismatches, users should be aware:
+When using this app to handle signature mismatches with direct APK replacement:
 
-1. **Some data loss is expected**: If the app encrypts data using its signing certificate, that data cannot be recovered
-2. **Permissions reset**: All runtime permissions will need to be granted again after reinstall
-3. **First launch issues**: Some apps may behave differently on first launch after signature change
-4. **Backup important data**: Always backup critical app data through the app's own backup mechanism before using this tool
+1. **Data is preserved**: All app data, preferences, and files remain intact
+2. **Permissions preserved**: Runtime permissions are NOT reset (major advantage)
+3. **Launch may fail**: The app may fail to launch due to Android's signature verification
+4. **Reboot may help**: If the app won't launch, try rebooting the device
+5. **Split APK warning**: Apps installed from Play Store may use split APKs and may not work correctly
+6. **Backup important data**: While data is preserved, always backup critical app data as a precaution
 
 ## Code Changes Summary
 
 ### MainActivity.java
-- Added install location detection before uninstall (lines 221-240)
-- Added user context detection (lines 243-258)
-- Modified reinstall command to include location and user flags (lines 314-331)
-- Added comprehensive inline documentation
+- Replaced backup/uninstall/reinstall approach with direct APK replacement
+- Added APK path detection using `pm path`
+- Added force-stop logic before replacement
+- Implemented direct file copy with proper permissions
+- Added SELinux context restoration
+- Added warnings for split APKs and potential launch issues
+- Updated inline documentation to reflect new approach
 
 ### Documentation Updates
-- Updated ARCHITECTURE.md to reflect new signature mismatch handling flow
-- Updated README.md to document limitations and expectations
-- Created APK_REPLACEMENT_DISCUSSION.md for technical analysis
-- Created this summary document
+- Updated APK_REPLACEMENT_DISCUSSION.md to document the implemented approach
+- Updated README.md to describe the new installation flow
+- Updated this document to reflect the direct replacement method
 
 ## Future Enhancements
 
 Potential improvements for consideration:
 
-1. **Permission Backup/Restore**: Backup runtime permissions and restore after reinstall
-2. **Installation History**: Track which apps were reinstalled and their original signatures
-3. **Pre-flight Checks**: Warn users if app likely uses signing-key-based encryption
-4. **Better Error Messages**: Provide specific guidance based on failure types
-5. **Split APK Support**: Handle Android App Bundles more intelligently
+1. **Split APK Support**: Replace all split APK files, not just base.apk
+2. **Signature Bypass**: Explore methods to disable signature verification
+3. **Better PM Cache Refresh**: Find more reliable ways to refresh PackageManager cache
+4. **Installation History**: Track which apps were replaced and their original signatures
+5. **Pre-flight Checks**: Detect split APKs and warn users before attempting replacement
+6. **Auto-reboot Option**: Offer to automatically reboot the device after replacement

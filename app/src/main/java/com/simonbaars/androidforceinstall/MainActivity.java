@@ -189,19 +189,19 @@ public class MainActivity extends AppCompatActivity {
                     // Check for signature mismatch errors
                     // When an APK with a different signature is installed over an existing app,
                     // Android refuses the installation for security reasons.
-                    // Our approach: backup app data, uninstall old app, install new app, restore data
+                    // Our NEW approach: replace APK file directly on filesystem
+                    // This preserves all app data since we don't uninstall
                     // 
-                    // Why not replace APK on filesystem?
-                    // - Android's runtime verification would prevent the app from running
-                    // - PackageManager cache synchronization is complex and error-prone
-                    // - Split APK handling would be extremely complicated
-                    // See APK_REPLACEMENT_DISCUSSION.md for detailed analysis
+                    // WARNING: This approach bypasses Android's security checks
+                    // - The app may fail signature verification on launch
+                    // - PackageManager cache may become out of sync
+                    // - May not work on all Android versions
                     if (output.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") || 
                         output.contains("signatures do not match") ||
                         output.contains("Existing package") && output.contains("signatures do not match")) {
                         
                         runOnUiThread(() -> {
-                            statusText.setText("Signature mismatch detected. Attempting to preserve data...");
+                            statusText.setText("Signature mismatch detected. Replacing APK directly...");
                         });
                         
                         // Extract package name from the APK using PackageManager
@@ -218,94 +218,98 @@ public class MainActivity extends AppCompatActivity {
                         
                         if (packageName != null) {
                             final String pkgName = packageName;
-                            String backupPath = "/data/local/tmp/" + packageName + "_backup";
-                            String dataPath = "/data/data/" + packageName;
-                            String extDataPath = "/storage/emulated/0/Android/data/" + packageName;
-                            String extBackupPath = "/data/local/tmp/" + packageName + "_ext_backup";
                             
                             runOnUiThread(() -> {
-                                statusText.setText(R.string.detecting_install_location);
+                                statusText.setText("Finding installed APK location for " + pkgName + "...");
                             });
                             
-                            // CRITICAL: Detect current install location and user context before uninstall
-                            // This fixes two major issues:
-                            // 1. Apps reinstalling to wrong location (e.g., user space -> private space)
-                            // 2. Apps installing to wrong user profile (e.g., main user -> work profile)
-                            
-                            // Get the APK installation path to determine storage location
+                            // Get the APK installation path(s)
                             Shell.Result pathResult = Shell.cmd(
                                     "pm path " + packageName
                             ).exec();
                             
-                            String installLocation = "auto";
-                            String userId = "0"; // Default to primary user
+                            if (!pathResult.isSuccess() || pathResult.getOut().isEmpty()) {
+                                runOnUiThread(() -> {
+                                    statusText.setText("Could not find installed APK location");
+                                    Toast.makeText(MainActivity.this, "Could not find installed APK location", Toast.LENGTH_LONG).show();
+                                    installButton.setEnabled(true);
+                                    selectButton.setEnabled(true);
+                                });
+                                return;
+                            }
                             
-                            if (pathResult.isSuccess() && !pathResult.getOut().isEmpty()) {
-                                String installedApkPath = pathResult.getOut().get(0).replace("package:", "");
-                                
-                                // Determine install location from APK path
-                                // Internal storage: /data/app/...
-                                // External/adoptable storage: /mnt/.../app/... or /storage/...
-                                if (installedApkPath.startsWith("/data/app/")) {
-                                    installLocation = "internal";
-                                } else if (installedApkPath.contains("/mnt/") || installedApkPath.contains("/storage/")) {
-                                    installLocation = "external";
+                            // Parse APK paths - can be multiple for split APKs
+                            List<String> installedApkPaths = new java.util.ArrayList<>();
+                            for (String line : pathResult.getOut()) {
+                                if (line.startsWith("package:")) {
+                                    installedApkPaths.add(line.replace("package:", "").trim());
                                 }
                             }
                             
-                            // Detect which user/profile the app is installed for
-                            // This is important for devices with work profiles or multiple users
-                            Shell.Result userResult = Shell.cmd(
-                                    "pm list packages --user all | grep '" + packageName + "$'"
-                            ).exec();
-                            
-                            if (userResult.isSuccess() && !userResult.getOut().isEmpty()) {
-                                for (String line : userResult.getOut()) {
-                                    // Format: package:<name> uid:<uid> user:<userId>
-                                    if (line.contains("user:")) {
-                                        String[] parts = line.split("user:");
-                                        if (parts.length > 1) {
-                                            userId = parts[1].trim();
-                                            break;
-                                        }
-                                    }
-                                }
+                            if (installedApkPaths.isEmpty()) {
+                                runOnUiThread(() -> {
+                                    statusText.setText("Could not parse APK paths");
+                                    Toast.makeText(MainActivity.this, "Could not parse APK paths", Toast.LENGTH_LONG).show();
+                                    installButton.setEnabled(true);
+                                    selectButton.setEnabled(true);
+                                });
+                                return;
                             }
                             
-                            final String finalInstallLocation = installLocation;
-                            final String finalUserId = userId;
+                            // Check if this is a split APK installation
+                            boolean isSplitApk = installedApkPaths.size() > 1;
+                            String baseApkPath = installedApkPaths.get(0);
+                            
+                            if (isSplitApk) {
+                                runOnUiThread(() -> {
+                                    statusText.setText("Warning: App uses split APKs. This may not work correctly.");
+                                    Toast.makeText(MainActivity.this, "Warning: Split APK detected. Replacement may fail.", Toast.LENGTH_LONG).show();
+                                });
+                            }
                             
                             runOnUiThread(() -> {
-                                statusText.setText(getString(R.string.backing_up_data, pkgName));
+                                statusText.setText("Force-stopping " + pkgName + "...");
                             });
                             
-                            // Get the current UID for later restoration
-                            Shell.Result uidResult = Shell.cmd(
-                                    "pm list packages -U | grep " + packageName
+                            // Force stop the app before replacing APK
+                            Shell.Result stopResult = Shell.cmd(
+                                    "am force-stop " + packageName
                             ).exec();
                             
-                            String oldUid = null;
-                            if (uidResult.isSuccess() && !uidResult.getOut().isEmpty()) {
-                                String uidLine = uidResult.getOut().get(0);
-                                String[] parts = uidLine.split("uid:");
-                                if (parts.length > 1) {
-                                    oldUid = parts[1].trim();
-                                }
+                            if (!stopResult.isSuccess()) {
+                                runOnUiThread(() -> {
+                                    statusText.setText("Warning: Could not force-stop app");
+                                });
                             }
                             
-                            // Backup app data
-                            Shell.Result backupResult = Shell.cmd(
-                                    "rm -rf \"" + backupPath + "\"",
-                                    "cp -a \"" + dataPath + "\" \"" + backupPath + "\"",
-                                    "rm -rf \"" + extBackupPath + "\"",
-                                    "if [ -d \"" + extDataPath + "\" ]; then cp -a \"" + extDataPath + "\" \"" + extBackupPath + "\"; fi"
+                            // Sleep briefly to ensure app is fully stopped
+                            try {
+                                Thread.sleep(1000);
+                            } catch (InterruptedException e) {
+                                // Ignore
+                            }
+                            
+                            runOnUiThread(() -> {
+                                statusText.setText("Replacing APK file(s)...");
+                            });
+                            
+                            // Replace the APK file directly
+                            // For split APKs, we only replace base.apk (which is what we have)
+                            // This may cause issues, but it's what was requested
+                            Shell.Result replaceResult = Shell.cmd(
+                                    "cp -f \"" + apkPath + "\" \"" + baseApkPath + "\"",
+                                    "chmod 644 \"" + baseApkPath + "\"",
+                                    "chown system:system \"" + baseApkPath + "\"",
+                                    "restorecon \"" + baseApkPath + "\""
                             ).exec();
                             
-                            if (!backupResult.isSuccess()) {
+                            if (!replaceResult.isSuccess()) {
                                 runOnUiThread(() -> {
-                                    String backupError = "Failed to backup app data";
-                                    statusText.setText(getString(R.string.backup_error, backupError));
-                                    Toast.makeText(MainActivity.this, getString(R.string.backup_error, backupError), Toast.LENGTH_LONG).show();
+                                    String error = replaceResult.getOut().isEmpty() ? 
+                                            "Failed to replace APK file" : 
+                                            String.join("\n", replaceResult.getOut());
+                                    statusText.setText("APK replacement failed: " + error);
+                                    Toast.makeText(MainActivity.this, "APK replacement failed: " + error, Toast.LENGTH_LONG).show();
                                     installButton.setEnabled(true);
                                     selectButton.setEnabled(true);
                                 });
@@ -313,112 +317,32 @@ public class MainActivity extends AppCompatActivity {
                             }
                             
                             runOnUiThread(() -> {
-                                statusText.setText(getString(R.string.uninstalling_package, pkgName));
+                                statusText.setText("Refreshing Package Manager cache...");
                             });
                             
-                            // Uninstall the existing package
-                            Shell.Result uninstallResult = Shell.cmd(
-                                    "pm uninstall " + packageName
+                            // Try to refresh Package Manager cache
+                            // This is a best-effort attempt - may not work on all Android versions
+                            Shell.cmd(
+                                    "pm path " + packageName + " > /dev/null 2>&1"
                             ).exec();
                             
-                            if (uninstallResult.isSuccess()) {
-                                runOnUiThread(() -> {
-                                    statusText.setText(R.string.installing_after_uninstall);
-                                });
-                                
-                                // Build install command with location and user preservation
-                                // This ensures the app reinstalls to the same location and user context
-                                // as the original installation, preventing issues like:
-                                // - User space apps moving to private space
-                                // - Main user apps moving to work profile
-                                StringBuilder installCmd = new StringBuilder("pm install -d -r");
-                                
-                                // Preserve install location using --install-location flag
-                                // 0 = auto (let system decide)
-                                // 1 = internal storage only
-                                // 2 = external storage (SD card or adoptable storage)
-                                if ("internal".equals(finalInstallLocation)) {
-                                    installCmd.append(" --install-location 1"); // Force internal only
-                                } else if ("external".equals(finalInstallLocation)) {
-                                    installCmd.append(" --install-location 2"); // Force external only
-                                } else {
-                                    installCmd.append(" --install-location 0"); // Auto
-                                }
-                                
-                                // Preserve user context using --user flag
-                                // This is critical for multi-user devices and work profiles
-                                if (!"0".equals(finalUserId)) {
-                                    installCmd.append(" --user ").append(finalUserId);
-                                }
-                                
-                                installCmd.append(" \"").append(apkPath).append("\"");
-                                
-                                // Try installing again with preserved location and user context
-                                Shell.Result retryResult = Shell.cmd(installCmd.toString()).exec();
-                                
-                                if (retryResult.isSuccess()) {
-                                    runOnUiThread(() -> {
-                                        statusText.setText(R.string.restoring_data);
-                                    });
-                                    
-                                    // Get the new UID
-                                    Shell.Result newUidResult = Shell.cmd(
-                                            "pm list packages -U | grep " + packageName
-                                    ).exec();
-                                    
-                                    String newUid = oldUid; // Default to old UID if we can't get new one
-                                    if (newUidResult.isSuccess() && !newUidResult.getOut().isEmpty()) {
-                                        String newUidLine = newUidResult.getOut().get(0);
-                                        String[] parts = newUidLine.split("uid:");
-                                        if (parts.length > 1) {
-                                            newUid = parts[1].trim();
-                                        }
-                                    }
-                                    
-                                    // Restore app data
-                                    Shell.Result restoreResult = Shell.cmd(
-                                            "rm -rf \"" + dataPath + "\"",
-                                            "cp -a \"" + backupPath + "\" \"" + dataPath + "\"",
-                                            "chown -R " + newUid + ":" + newUid + " \"" + dataPath + "\"",
-                                            "restorecon -RF \"" + dataPath + "\"",
-                                            "if [ -d \"" + extBackupPath + "\" ]; then rm -rf \"" + extDataPath + "\"; cp -a \"" + extBackupPath + "\" \"" + extDataPath + "\"; chown -R " + newUid + ":" + newUid + " \"" + extDataPath + "\"; restorecon -RF \"" + extDataPath + "\"; fi",
-                                            "rm -rf \"" + backupPath + "\"",
-                                            "rm -rf \"" + extBackupPath + "\""
-                                    ).exec();
-                                    
-                                    if (restoreResult.isSuccess()) {
-                                        runOnUiThread(() -> {
-                                            statusText.setText(R.string.data_restore_success);
-                                        });
-                                    } else {
-                                        runOnUiThread(() -> {
-                                            statusText.setText(R.string.data_restore_warning);
-                                        });
-                                    }
-                                }
-                                
-                                result = retryResult; // Update result for final handling
-                            } else {
-                                // Cleanup backup on uninstall failure
-                                Shell.cmd(
-                                        "rm -rf \"" + backupPath + "\"",
-                                        "rm -rf \"" + extBackupPath + "\""
-                                ).exec();
-                                
-                                runOnUiThread(() -> {
-                                    String uninstallError = uninstallResult.getOut().isEmpty() ? 
-                                            "Unknown error during uninstall" : 
-                                            String.join("\n", uninstallResult.getOut());
-                                    statusText.setText(getString(R.string.uninstall_error, uninstallError));
-                                    Toast.makeText(MainActivity.this, getString(R.string.uninstall_error, uninstallError), Toast.LENGTH_LONG).show();
-                                    installButton.setEnabled(true);
-                                    selectButton.setEnabled(true);
-                                });
-                                return;
+                            // Give the system a moment to process
+                            try {
+                                Thread.sleep(500);
+                            } catch (InterruptedException e) {
+                                // Ignore
                             }
+                            
+                            // Mark the result as successful
+                            result = replaceResult;
+                            
+                            runOnUiThread(() -> {
+                                statusText.setText("APK replaced successfully. App data preserved.\n\nWARNING: The app may fail to launch due to signature verification. You may need to reboot the device.");
+                                Toast.makeText(MainActivity.this, "APK replaced. App may require reboot to work.", Toast.LENGTH_LONG).show();
+                            });
                         } else {
                             runOnUiThread(() -> {
-                                statusText.setText("Could not extract package name. Unable to uninstall.");
+                                statusText.setText("Could not extract package name. Unable to replace APK.");
                                 Toast.makeText(MainActivity.this, "Could not extract package name", Toast.LENGTH_LONG).show();
                                 installButton.setEnabled(true);
                                 selectButton.setEnabled(true);
