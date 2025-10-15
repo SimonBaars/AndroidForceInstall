@@ -1,5 +1,7 @@
 # Fix: "Could not find installed APK location" Error
 
+> **NOTE**: This fix has been superseded by a more comprehensive fix documented in `FIX_CORRUPTED_INSTALLATION.md`. This document is kept for historical reference.
+
 ## Problem
 
 The app was failing with the error "could not find installed APK location" when trying to install certain apps. This occurred because the code was attempting to find the APK installation path for apps that were not actually installed on the device.
@@ -94,3 +96,7 @@ Test the following scenarios:
 - Added installation check using `PackageManager.getPackageInfo()`
 - Added fallback logic for uninstalled apps
 - Added user feedback for the uninstalled app scenario
+
+## Update
+
+This initial fix only handled signature mismatch errors. A more comprehensive fix has been implemented that handles ALL installation failures where the app is not installed, including corrupted installations. See `FIX_CORRUPTED_INSTALLATION.md` for the complete solution.
