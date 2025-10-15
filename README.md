@@ -22,16 +22,17 @@ The app uses the `libsu` library to execute shell commands with root privileges.
 
 1. The app checks for root access
 2. Copies the selected APK to the app's cache directory
-3. Uses `pm install -d -r` command with root to force install the APK
+3. Uses `pm install -d -r --user 0` command with root to force install the APK
    - `-d` flag allows downgrading
    - `-r` flag replaces the existing application
+   - `--user 0` flag ensures installation to user space (not private space)
 4. If installation fails due to signature mismatch (INSTALL_FAILED_UPDATE_INCOMPATIBLE):
    - Automatically extracts the package name from the APK using Android's PackageManager
    - Finds the installed APK location using `pm path`
    - Force-stops the running app
    - Replaces the APK file directly on the filesystem
    - Sets proper file permissions and SELinux contexts
-   - Runs `pm install` on the replaced APK to properly register it with PackageManager
+   - Runs `pm install --user 0` on the replaced APK to properly register it with PackageManager
    
 **Note**: This hybrid approach preserves ALL app data since no uninstall occurs, while properly registering the new APK to prevent corruption and ensure the app continues to work correctly.
 

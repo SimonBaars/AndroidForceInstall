@@ -178,8 +178,9 @@ public class MainActivity extends AppCompatActivity {
                 // Use pm install with root to force install the APK
                 // The -d flag allows downgrading
                 // The -r flag replaces existing application
+                // The --user 0 flag ensures installation to user space (not private space)
                 Shell.Result result = Shell.cmd(
-                        "pm install -d -r \"" + apkPath + "\""
+                        "pm install -d -r --user 0 \"" + apkPath + "\""
                 ).exec();
 
                 // Check if installation failed due to signature mismatch or other issues
@@ -244,9 +245,10 @@ public class MainActivity extends AppCompatActivity {
                             
                             // Try to clean up any corruption and install fresh
                             // The uninstall will fail if nothing exists, but that's okay
+                            // Use --user 0 to ensure operations in user space
                             Shell.Result forceInstallResult = Shell.cmd(
-                                    "pm uninstall " + packageName,
-                                    "pm install -d -r \"" + apkPath + "\""
+                                    "pm uninstall --user 0 " + packageName,
+                                    "pm install -d -r --user 0 \"" + apkPath + "\""
                             ).exec();
                             
                             final Shell.Result finalForceResult = forceInstallResult;
@@ -287,8 +289,9 @@ public class MainActivity extends AppCompatActivity {
                         });
                         
                         // Get the APK installation path(s)
+                        // Use --user 0 to query user space
                         Shell.Result pathResult = Shell.cmd(
-                                "pm path " + packageName
+                                "pm path --user 0 " + packageName
                         ).exec();
                         
                         if (!pathResult.isSuccess() || pathResult.getOut().isEmpty()) {
@@ -335,8 +338,9 @@ public class MainActivity extends AppCompatActivity {
                         });
                         
                         // Force stop the app before replacing APK
+                        // Use --user 0 to target user space
                         Shell.Result stopResult = Shell.cmd(
-                                "am force-stop " + packageName
+                                "am force-stop --user 0 " + packageName
                         ).exec();
                         
                         if (!stopResult.isSuccess()) {
@@ -386,8 +390,9 @@ public class MainActivity extends AppCompatActivity {
                         // Now that the APK file is replaced, install it properly to register with PackageManager
                         // This ensures the app is properly registered and won't corrupt/disappear
                         // Since the APK is already in place at the correct location, this won't change the UID or data
+                        // Use --user 0 to ensure registration in user space
                         Shell.Result registerResult = Shell.cmd(
-                                "pm install -d -r \"" + baseApkPath + "\""
+                                "pm install -d -r --user 0 \"" + baseApkPath + "\""
                         ).exec();
                         
                         if (!registerResult.isSuccess()) {
