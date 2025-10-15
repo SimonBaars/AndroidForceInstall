@@ -223,29 +223,86 @@ public class MainActivity extends AppCompatActivity {
                     if (packageName != null) {
                         final String pkgName = packageName;
                         
-                        // Check if the app is currently installed
-                        boolean isAppInstalled = false;
-                        try {
-                            getPackageManager().getPackageInfo(packageName, 0);
-                            isAppInstalled = true;
-                        } catch (PackageManager.NameNotFoundException e) {
-                            // App is not installed
+                        // For signature mismatch cases, always try direct APK replacement first
+                        // This preserves data even if PackageManager thinks the app is not installed
+                        if (isSignatureMismatch) {
+                            // Signature mismatch detected - proceed with direct APK replacement
+                            // regardless of what PackageManager reports about installation status
+                        } else {
+                            // Not a signature mismatch - check if app is installed
+                            // to determine the appropriate error handling
+                            boolean isAppInstalled = false;
+                            try {
+                                getPackageManager().getPackageInfo(packageName, 0);
+                                isAppInstalled = true;
+                            } catch (PackageManager.NameNotFoundException e) {
+                                // App is not installed
+                            }
+                            
+                            if (!isAppInstalled) {
+                                // App is not installed according to PackageManager
+                                // This could be a corrupted installation with leftover files
+                                // Try to clean up and install fresh
+                                runOnUiThread(() -> {
+                                    statusText.setText("App not installed or corrupted. Cleaning up and installing...");
+                                });
+                                
+                                // Try to clean up any corruption and install fresh
+                                // The uninstall will fail if nothing exists, but that's okay
+                                // Use --user 0 to ensure operations in user space
+                                Shell.Result forceInstallResult = Shell.cmd(
+                                        "pm uninstall --user 0 " + packageName,
+                                        "pm install -d -r --user 0 \"" + apkPath + "\""
+                                ).exec();
+                                
+                                final Shell.Result finalForceResult = forceInstallResult;
+                                runOnUiThread(() -> {
+                                    if (finalForceResult.isSuccess() || finalForceResult.getOut().toString().contains("Success")) {
+                                        statusText.setText("App installed successfully");
+                                        Toast.makeText(MainActivity.this, "App installed successfully!", Toast.LENGTH_LONG).show();
+                                    } else {
+                                        String error = finalForceResult.getOut().isEmpty() ? 
+                                                "Unknown error" : 
+                                                String.join("\n", finalForceResult.getOut());
+                                        statusText.setText("Installation failed: " + error);
+                                        Toast.makeText(MainActivity.this, "Installation failed: " + error, Toast.LENGTH_LONG).show();
+                                    }
+                                    installButton.setEnabled(true);
+                                    selectButton.setEnabled(true);
+                                });
+                                return;
+                            } else {
+                                // App IS installed but installation failed for a different reason
+                                // Just report the error
+                                runOnUiThread(() -> {
+                                    String error = output.isEmpty() ? "Unknown error" : output;
+                                    statusText.setText("Installation failed: " + error);
+                                    Toast.makeText(MainActivity.this, getString(R.string.install_error, error), Toast.LENGTH_LONG).show();
+                                    installButton.setEnabled(true);
+                                    selectButton.setEnabled(true);
+                                });
+                                return;
+                            }
                         }
                         
-                        if (!isAppInstalled) {
-                            // App is not installed according to PackageManager
-                            // This could be:
-                            // 1. A fresh install attempt with signature mismatch detection (false positive)
-                            // 2. A corrupted installation with leftover files
-                            // 
-                            // In either case, we need to clean up and install fresh
+                        runOnUiThread(() -> {
+                            statusText.setText("Finding installed APK location for " + pkgName + "...");
+                        });
+                        
+                        // Get the APK installation path(s)
+                        // Use --user 0 to query user space
+                        Shell.Result pathResult = Shell.cmd(
+                                "pm path --user 0 " + packageName
+                        ).exec();
+                        
+                        if (!pathResult.isSuccess() || pathResult.getOut().isEmpty()) {
+                            // Could not find APK path - fall back to uninstall + install approach
+                            // This can happen if the app appears to have signature mismatch but
+                            // PackageManager doesn't actually have it registered
                             runOnUiThread(() -> {
-                                statusText.setText("App not installed or corrupted. Cleaning up and installing...");
+                                statusText.setText("Could not find installed APK location. Trying cleanup and fresh install...");
                             });
                             
-                            // Try to clean up any corruption and install fresh
-                            // The uninstall will fail if nothing exists, but that's okay
-                            // Use --user 0 to ensure operations in user space
                             Shell.Result forceInstallResult = Shell.cmd(
                                     "pm uninstall --user 0 " + packageName,
                                     "pm install -d -r --user 0 \"" + apkPath + "\""
@@ -263,41 +320,6 @@ public class MainActivity extends AppCompatActivity {
                                     statusText.setText("Installation failed: " + error);
                                     Toast.makeText(MainActivity.this, "Installation failed: " + error, Toast.LENGTH_LONG).show();
                                 }
-                                installButton.setEnabled(true);
-                                selectButton.setEnabled(true);
-                            });
-                            return;
-                        }
-                        
-                        // If we reach here, the app IS installed and we have a signature mismatch
-                        // Only proceed with direct APK replacement if it's actually a signature mismatch
-                        if (!isSignatureMismatch) {
-                            // Installation failed for a different reason (not signature mismatch)
-                            // and the app IS installed, so just report the error
-                            runOnUiThread(() -> {
-                                String error = output.isEmpty() ? "Unknown error" : output;
-                                statusText.setText("Installation failed: " + error);
-                                Toast.makeText(MainActivity.this, getString(R.string.install_error, error), Toast.LENGTH_LONG).show();
-                                installButton.setEnabled(true);
-                                selectButton.setEnabled(true);
-                            });
-                            return;
-                        }
-                        
-                        runOnUiThread(() -> {
-                            statusText.setText("Finding installed APK location for " + pkgName + "...");
-                        });
-                        
-                        // Get the APK installation path(s)
-                        // Use --user 0 to query user space
-                        Shell.Result pathResult = Shell.cmd(
-                                "pm path --user 0 " + packageName
-                        ).exec();
-                        
-                        if (!pathResult.isSuccess() || pathResult.getOut().isEmpty()) {
-                            runOnUiThread(() -> {
-                                statusText.setText("Could not find installed APK location");
-                                Toast.makeText(MainActivity.this, "Could not find installed APK location", Toast.LENGTH_LONG).show();
                                 installButton.setEnabled(true);
                                 selectButton.setEnabled(true);
                             });
