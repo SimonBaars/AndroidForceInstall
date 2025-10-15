@@ -182,9 +182,22 @@ public class MainActivity extends AppCompatActivity {
                         "pm install -d -r \"" + apkPath + "\""
                 ).exec();
 
-                // Check if installation failed due to signature mismatch
+                // Check if installation failed due to signature mismatch or other issues
                 if (!result.isSuccess()) {
                     String output = String.join("\n", result.getOut());
+                    
+                    // Extract package name from the APK using PackageManager
+                    // We need this to check installation status and handle special cases
+                    String packageName = null;
+                    try {
+                        PackageManager pm = getPackageManager();
+                        PackageInfo info = pm.getPackageArchiveInfo(apkPath, 0);
+                        if (info != null) {
+                            packageName = info.packageName;
+                        }
+                    } catch (Exception e) {
+                        // Failed to get package name from PackageManager
+                    }
                     
                     // Check for signature mismatch errors
                     // When an APK with a different signature is installed over an existing app,
@@ -196,213 +209,225 @@ public class MainActivity extends AppCompatActivity {
                     // - The app may fail signature verification on launch
                     // - PackageManager cache may become out of sync
                     // - May not work on all Android versions
-                    if (output.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") || 
+                    boolean isSignatureMismatch = output.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") || 
                         output.contains("signatures do not match") ||
-                        output.contains("Existing package") && output.contains("signatures do not match")) {
-                        
+                        (output.contains("Existing package") && output.contains("signatures do not match"));
+                    
+                    if (isSignatureMismatch) {
                         runOnUiThread(() -> {
                             statusText.setText("Signature mismatch detected. Replacing APK directly...");
                         });
+                    }
+                    
+                    if (packageName != null) {
+                        final String pkgName = packageName;
                         
-                        // Extract package name from the APK using PackageManager
-                        String packageName = null;
+                        // Check if the app is currently installed
+                        boolean isAppInstalled = false;
                         try {
-                            PackageManager pm = getPackageManager();
-                            PackageInfo info = pm.getPackageArchiveInfo(apkPath, 0);
-                            if (info != null) {
-                                packageName = info.packageName;
-                            }
-                        } catch (Exception e) {
-                            // Failed to get package name from PackageManager
+                            getPackageManager().getPackageInfo(packageName, 0);
+                            isAppInstalled = true;
+                        } catch (PackageManager.NameNotFoundException e) {
+                            // App is not installed
                         }
                         
-                        if (packageName != null) {
-                            final String pkgName = packageName;
-                            
-                            // Check if the app is currently installed
-                            boolean isAppInstalled = false;
-                            try {
-                                getPackageManager().getPackageInfo(packageName, 0);
-                                isAppInstalled = true;
-                            } catch (PackageManager.NameNotFoundException e) {
-                                // App is not installed
-                            }
-                            
-                            if (!isAppInstalled) {
-                                // App is not installed, so we can't use direct APK replacement
-                                // Fall back to uninstall/reinstall approach (which will just install since app doesn't exist)
-                                runOnUiThread(() -> {
-                                    statusText.setText("App not installed. Using uninstall/reinstall approach...");
-                                });
-                                
-                                // Try to install with force flag (-f) to bypass signature checks
-                                Shell.Result forceInstallResult = Shell.cmd(
-                                        "pm uninstall " + packageName,
-                                        "pm install -d -r \"" + apkPath + "\""
-                                ).exec();
-                                
-                                final Shell.Result finalForceResult = forceInstallResult;
-                                runOnUiThread(() -> {
-                                    if (finalForceResult.isSuccess() || finalForceResult.getOut().toString().contains("Success")) {
-                                        statusText.setText("App installed successfully (no previous app to preserve data from)");
-                                        Toast.makeText(MainActivity.this, "App installed successfully!", Toast.LENGTH_LONG).show();
-                                    } else {
-                                        String error = finalForceResult.getOut().isEmpty() ? 
-                                                "Unknown error" : 
-                                                String.join("\n", finalForceResult.getOut());
-                                        statusText.setText("Installation failed: " + error);
-                                        Toast.makeText(MainActivity.this, "Installation failed: " + error, Toast.LENGTH_LONG).show();
-                                    }
-                                    installButton.setEnabled(true);
-                                    selectButton.setEnabled(true);
-                                });
-                                return;
-                            }
-                            
+                        if (!isAppInstalled) {
+                            // App is not installed according to PackageManager
+                            // This could be:
+                            // 1. A fresh install attempt with signature mismatch detection (false positive)
+                            // 2. A corrupted installation with leftover files
+                            // 
+                            // In either case, we need to clean up and install fresh
                             runOnUiThread(() -> {
-                                statusText.setText("Finding installed APK location for " + pkgName + "...");
+                                statusText.setText("App not installed or corrupted. Cleaning up and installing...");
                             });
                             
-                            // Get the APK installation path(s)
-                            Shell.Result pathResult = Shell.cmd(
-                                    "pm path " + packageName
+                            // Try to clean up any corruption and install fresh
+                            // The uninstall will fail if nothing exists, but that's okay
+                            Shell.Result forceInstallResult = Shell.cmd(
+                                    "pm uninstall " + packageName,
+                                    "pm install -d -r \"" + apkPath + "\""
                             ).exec();
                             
-                            if (!pathResult.isSuccess() || pathResult.getOut().isEmpty()) {
-                                runOnUiThread(() -> {
-                                    statusText.setText("Could not find installed APK location");
-                                    Toast.makeText(MainActivity.this, "Could not find installed APK location", Toast.LENGTH_LONG).show();
-                                    installButton.setEnabled(true);
-                                    selectButton.setEnabled(true);
-                                });
-                                return;
-                            }
-                            
-                            // Parse APK paths - can be multiple for split APKs
-                            List<String> installedApkPaths = new java.util.ArrayList<>();
-                            for (String line : pathResult.getOut()) {
-                                if (line.startsWith("package:")) {
-                                    installedApkPaths.add(line.replace("package:", "").trim());
-                                }
-                            }
-                            
-                            if (installedApkPaths.isEmpty()) {
-                                runOnUiThread(() -> {
-                                    statusText.setText("Could not parse APK paths");
-                                    Toast.makeText(MainActivity.this, "Could not parse APK paths", Toast.LENGTH_LONG).show();
-                                    installButton.setEnabled(true);
-                                    selectButton.setEnabled(true);
-                                });
-                                return;
-                            }
-                            
-                            // Check if this is a split APK installation
-                            boolean isSplitApk = installedApkPaths.size() > 1;
-                            String baseApkPath = installedApkPaths.get(0);
-                            
-                            if (isSplitApk) {
-                                runOnUiThread(() -> {
-                                    statusText.setText("Warning: App uses split APKs. This may not work correctly.");
-                                    Toast.makeText(MainActivity.this, "Warning: Split APK detected. Replacement may fail.", Toast.LENGTH_LONG).show();
-                                });
-                            }
-                            
+                            final Shell.Result finalForceResult = forceInstallResult;
                             runOnUiThread(() -> {
-                                statusText.setText("Force-stopping " + pkgName + "...");
-                            });
-                            
-                            // Force stop the app before replacing APK
-                            Shell.Result stopResult = Shell.cmd(
-                                    "am force-stop " + packageName
-                            ).exec();
-                            
-                            if (!stopResult.isSuccess()) {
-                                runOnUiThread(() -> {
-                                    statusText.setText("Warning: Could not force-stop app");
-                                });
-                            }
-                            
-                            // Sleep briefly to ensure app is fully stopped
-                            try {
-                                Thread.sleep(1000);
-                            } catch (InterruptedException e) {
-                                // Ignore
-                            }
-                            
-                            runOnUiThread(() -> {
-                                statusText.setText("Replacing APK file(s)...");
-                            });
-                            
-                            // Replace the APK file directly
-                            // For split APKs, we only replace base.apk (which is what we have)
-                            // This may cause issues, but it's what was requested
-                            Shell.Result replaceResult = Shell.cmd(
-                                    "cp -f \"" + apkPath + "\" \"" + baseApkPath + "\"",
-                                    "chmod 644 \"" + baseApkPath + "\"",
-                                    "chown system:system \"" + baseApkPath + "\"",
-                                    "restorecon \"" + baseApkPath + "\""
-                            ).exec();
-                            
-                            if (!replaceResult.isSuccess()) {
-                                runOnUiThread(() -> {
-                                    String error = replaceResult.getOut().isEmpty() ? 
-                                            "Failed to replace APK file" : 
-                                            String.join("\n", replaceResult.getOut());
-                                    statusText.setText("APK replacement failed: " + error);
-                                    Toast.makeText(MainActivity.this, "APK replacement failed: " + error, Toast.LENGTH_LONG).show();
-                                    installButton.setEnabled(true);
-                                    selectButton.setEnabled(true);
-                                });
-                                return;
-                            }
-                            
-                            runOnUiThread(() -> {
-                                statusText.setText("Registering APK with Package Manager...");
-                            });
-                            
-                            // Now that the APK file is replaced, install it properly to register with PackageManager
-                            // This ensures the app is properly registered and won't corrupt/disappear
-                            // Since the APK is already in place at the correct location, this won't change the UID or data
-                            Shell.Result registerResult = Shell.cmd(
-                                    "pm install -d -r \"" + baseApkPath + "\""
-                            ).exec();
-                            
-                            if (!registerResult.isSuccess()) {
-                                // Registration failed, but APK is already replaced
-                                // Log warning but don't fail - the app might still work
-                                runOnUiThread(() -> {
-                                    String warning = registerResult.getOut().isEmpty() ? 
+                                if (finalForceResult.isSuccess() || finalForceResult.getOut().toString().contains("Success")) {
+                                    statusText.setText("App installed successfully");
+                                    Toast.makeText(MainActivity.this, "App installed successfully!", Toast.LENGTH_LONG).show();
+                                } else {
+                                    String error = finalForceResult.getOut().isEmpty() ? 
                                             "Unknown error" : 
-                                            String.join("\n", registerResult.getOut());
-                                    statusText.setText("APK replaced but registration had issues: " + warning + "\n\nApp data preserved. You may need to reboot the device.");
-                                    Toast.makeText(MainActivity.this, "APK replaced with warnings. Reboot may be needed.", Toast.LENGTH_LONG).show();
-                                });
-                            } else {
-                                // Success - APK is both replaced and registered
-                                runOnUiThread(() -> {
-                                    statusText.setText("APK replaced and registered successfully. App data preserved.");
-                                    Toast.makeText(MainActivity.this, "APK installed successfully with data preserved!", Toast.LENGTH_LONG).show();
-                                });
-                            }
-                            
-                            // Give the system a moment to process
-                            try {
-                                Thread.sleep(500);
-                            } catch (InterruptedException e) {
-                                // Ignore
-                            }
-                            
-                            // Mark the result as successful (either way, the APK was replaced)
-                            result = replaceResult;
-                        } else {
-                            runOnUiThread(() -> {
-                                statusText.setText("Could not extract package name. Unable to replace APK.");
-                                Toast.makeText(MainActivity.this, "Could not extract package name", Toast.LENGTH_LONG).show();
+                                            String.join("\n", finalForceResult.getOut());
+                                    statusText.setText("Installation failed: " + error);
+                                    Toast.makeText(MainActivity.this, "Installation failed: " + error, Toast.LENGTH_LONG).show();
+                                }
                                 installButton.setEnabled(true);
                                 selectButton.setEnabled(true);
                             });
                             return;
                         }
+                        
+                        // If we reach here, the app IS installed and we have a signature mismatch
+                        // Only proceed with direct APK replacement if it's actually a signature mismatch
+                        if (!isSignatureMismatch) {
+                            // Installation failed for a different reason (not signature mismatch)
+                            // and the app IS installed, so just report the error
+                            runOnUiThread(() -> {
+                                String error = output.isEmpty() ? "Unknown error" : output;
+                                statusText.setText("Installation failed: " + error);
+                                Toast.makeText(MainActivity.this, getString(R.string.install_error, error), Toast.LENGTH_LONG).show();
+                                installButton.setEnabled(true);
+                                selectButton.setEnabled(true);
+                            });
+                            return;
+                        }
+                        
+                        runOnUiThread(() -> {
+                            statusText.setText("Finding installed APK location for " + pkgName + "...");
+                        });
+                        
+                        // Get the APK installation path(s)
+                        Shell.Result pathResult = Shell.cmd(
+                                "pm path " + packageName
+                        ).exec();
+                        
+                        if (!pathResult.isSuccess() || pathResult.getOut().isEmpty()) {
+                            runOnUiThread(() -> {
+                                statusText.setText("Could not find installed APK location");
+                                Toast.makeText(MainActivity.this, "Could not find installed APK location", Toast.LENGTH_LONG).show();
+                                installButton.setEnabled(true);
+                                selectButton.setEnabled(true);
+                            });
+                            return;
+                        }
+                        
+                        // Parse APK paths - can be multiple for split APKs
+                        List<String> installedApkPaths = new java.util.ArrayList<>();
+                        for (String line : pathResult.getOut()) {
+                            if (line.startsWith("package:")) {
+                                installedApkPaths.add(line.replace("package:", "").trim());
+                            }
+                        }
+                        
+                        if (installedApkPaths.isEmpty()) {
+                            runOnUiThread(() -> {
+                                statusText.setText("Could not parse APK paths");
+                                Toast.makeText(MainActivity.this, "Could not parse APK paths", Toast.LENGTH_LONG).show();
+                                installButton.setEnabled(true);
+                                selectButton.setEnabled(true);
+                            });
+                            return;
+                        }
+                        
+                        // Check if this is a split APK installation
+                        boolean isSplitApk = installedApkPaths.size() > 1;
+                        String baseApkPath = installedApkPaths.get(0);
+                        
+                        if (isSplitApk) {
+                            runOnUiThread(() -> {
+                                statusText.setText("Warning: App uses split APKs. This may not work correctly.");
+                                Toast.makeText(MainActivity.this, "Warning: Split APK detected. Replacement may fail.", Toast.LENGTH_LONG).show();
+                            });
+                        }
+                        
+                        runOnUiThread(() -> {
+                            statusText.setText("Force-stopping " + pkgName + "...");
+                        });
+                        
+                        // Force stop the app before replacing APK
+                        Shell.Result stopResult = Shell.cmd(
+                                "am force-stop " + packageName
+                        ).exec();
+                        
+                        if (!stopResult.isSuccess()) {
+                            runOnUiThread(() -> {
+                                statusText.setText("Warning: Could not force-stop app");
+                            });
+                        }
+                        
+                        // Sleep briefly to ensure app is fully stopped
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e) {
+                            // Ignore
+                        }
+                        
+                        runOnUiThread(() -> {
+                            statusText.setText("Replacing APK file(s)...");
+                        });
+                        
+                        // Replace the APK file directly
+                        // For split APKs, we only replace base.apk (which is what we have)
+                        // This may cause issues, but it's what was requested
+                        Shell.Result replaceResult = Shell.cmd(
+                                "cp -f \"" + apkPath + "\" \"" + baseApkPath + "\"",
+                                "chmod 644 \"" + baseApkPath + "\"",
+                                "chown system:system \"" + baseApkPath + "\"",
+                                "restorecon \"" + baseApkPath + "\""
+                        ).exec();
+                        
+                        if (!replaceResult.isSuccess()) {
+                            runOnUiThread(() -> {
+                                String error = replaceResult.getOut().isEmpty() ? 
+                                        "Failed to replace APK file" : 
+                                        String.join("\n", replaceResult.getOut());
+                                statusText.setText("APK replacement failed: " + error);
+                                Toast.makeText(MainActivity.this, "APK replacement failed: " + error, Toast.LENGTH_LONG).show();
+                                installButton.setEnabled(true);
+                                selectButton.setEnabled(true);
+                            });
+                            return;
+                        }
+                        
+                        runOnUiThread(() -> {
+                            statusText.setText("Registering APK with Package Manager...");
+                        });
+                        
+                        // Now that the APK file is replaced, install it properly to register with PackageManager
+                        // This ensures the app is properly registered and won't corrupt/disappear
+                        // Since the APK is already in place at the correct location, this won't change the UID or data
+                        Shell.Result registerResult = Shell.cmd(
+                                "pm install -d -r \"" + baseApkPath + "\""
+                        ).exec();
+                        
+                        if (!registerResult.isSuccess()) {
+                            // Registration failed, but APK is already replaced
+                            // Log warning but don't fail - the app might still work
+                            runOnUiThread(() -> {
+                                String warning = registerResult.getOut().isEmpty() ? 
+                                        "Unknown error" : 
+                                        String.join("\n", registerResult.getOut());
+                                statusText.setText("APK replaced but registration had issues: " + warning + "\n\nApp data preserved. You may need to reboot the device.");
+                                Toast.makeText(MainActivity.this, "APK replaced with warnings. Reboot may be needed.", Toast.LENGTH_LONG).show();
+                            });
+                        } else {
+                            // Success - APK is both replaced and registered
+                            runOnUiThread(() -> {
+                                statusText.setText("APK replaced and registered successfully. App data preserved.");
+                                Toast.makeText(MainActivity.this, "APK installed successfully with data preserved!", Toast.LENGTH_LONG).show();
+                            });
+                        }
+                        
+                        // Give the system a moment to process
+                        try {
+                            Thread.sleep(500);
+                        } catch (InterruptedException e) {
+                            // Ignore
+                        }
+                        
+                        // Mark the result as successful (either way, the APK was replaced)
+                        result = replaceResult;
+                    } else {
+                        // Could not extract package name
+                        // This shouldn't happen often, but if it does, just report the original error
+                        runOnUiThread(() -> {
+                            String error = output.isEmpty() ? "Unknown error" : output;
+                            statusText.setText("Installation failed: " + error);
+                            Toast.makeText(MainActivity.this, getString(R.string.install_error, error), Toast.LENGTH_LONG).show();
+                            installButton.setEnabled(true);
+                            selectButton.setEnabled(true);
+                        });
+                        return;
                     }
                 }
 
