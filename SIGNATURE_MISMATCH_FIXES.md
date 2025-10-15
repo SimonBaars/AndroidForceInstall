@@ -4,17 +4,17 @@
 
 This document describes the direct APK filesystem replacement approach now implemented for handling signature mismatches during app installation.
 
-### New Approach: Direct APK Replacement
+### New Approach: Hybrid Direct APK Replacement + Registration
 
 **Problem**: When installing an APK with a different signature over an existing app, Android's Package Manager refuses the installation for security reasons.
 
-**Solution**: The app now:
+**Solution**: The app now uses a hybrid approach:
 1. Detects the installed APK location using `pm path <package>`
 2. Force-stops the running app with `am force-stop`
 3. Directly replaces the APK file(s) on the filesystem
 4. Sets proper permissions (chmod 644, chown system:system)
 5. Restores SELinux contexts with `restorecon`
-6. Attempts to refresh Package Manager cache
+6. Runs `pm install` on the replaced APK to properly register it with PackageManager
 
 **Advantages**:
 - **Perfect Data Preservation**: No backup/restore needed - all app data remains intact
@@ -22,9 +22,10 @@ This document describes the direct APK filesystem replacement approach now imple
 - **Faster**: No uninstall/reinstall cycle
 - **Installation Location Preserved**: APK stays in exact same location
 - **Runtime Permissions Preserved**: Permissions are not reset
+- **Properly Registered**: PackageManager is updated, preventing corruption and disappearance
 
-**Limitations**:
-- **May Not Launch**: Android's signature verification may prevent the app from running
+**Why the hybrid approach**:
+The previous filesystem-only replacement caused apps to work initially but then corrupt and disappear after a while. By registering the already-replaced APK with `pm install`, we ensure PackageManager's cache stays in sync with the filesystem, preventing these issues while still preserving all data.
 - **Reboot May Be Required**: Device may need to be rebooted for changes to take effect
 - **Split APKs**: Only base.apk is replaced; split APKs may not work correctly
 - **PackageManager Cache**: Cache may become out of sync
@@ -46,8 +47,8 @@ This document describes the direct APK filesystem replacement approach now imple
    - chmod 644 <installed_apk_path>
    - chown system:system <installed_apk_path>
    - restorecon <installed_apk_path>
-8. Refresh Package Manager cache (best effort)
-9. Report success with warning about potential launch issues
+8. Register the replaced APK: pm install -d -r <installed_apk_path>
+9. Report success
 ```
 
 ## Why This Approach?

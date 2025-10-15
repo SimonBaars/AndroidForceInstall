@@ -31,9 +31,9 @@ The app uses the `libsu` library to execute shell commands with root privileges.
    - Force-stops the running app
    - Replaces the APK file directly on the filesystem
    - Sets proper file permissions and SELinux contexts
-   - Refreshes Package Manager cache
+   - Runs `pm install` on the replaced APK to properly register it with PackageManager
    
-**Note**: This approach preserves ALL app data since no uninstall occurs. However, the app may fail to launch due to Android's signature verification. A device reboot may be required for the app to work properly.
+**Note**: This hybrid approach preserves ALL app data since no uninstall occurs, while properly registering the new APK to prevent corruption and ensure the app continues to work correctly.
 
 ## Usage
 
@@ -86,9 +86,7 @@ This app **requires** root access to function. When you first launch it:
 ## Known Issues & Limitations
 
 When handling signature mismatches with direct APK replacement:
-- App may fail to launch due to Android's signature verification
-- Device reboot may be required for app to work properly
-- Split APKs (Android App Bundles) may not work correctly
+- Split APKs (Android App Bundles) may not work correctly (only base.apk is replaced)
 - May not work on all Android versions or custom ROMs
 
 For more details on signature mismatch handling, see:

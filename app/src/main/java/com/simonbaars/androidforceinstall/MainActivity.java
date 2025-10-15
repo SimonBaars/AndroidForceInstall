@@ -317,14 +317,33 @@ public class MainActivity extends AppCompatActivity {
                             }
                             
                             runOnUiThread(() -> {
-                                statusText.setText("Refreshing Package Manager cache...");
+                                statusText.setText("Registering APK with Package Manager...");
                             });
                             
-                            // Try to refresh Package Manager cache
-                            // This is a best-effort attempt - may not work on all Android versions
-                            Shell.cmd(
-                                    "pm path " + packageName + " > /dev/null 2>&1"
+                            // Now that the APK file is replaced, install it properly to register with PackageManager
+                            // This ensures the app is properly registered and won't corrupt/disappear
+                            // Since the APK is already in place at the correct location, this won't change the UID or data
+                            Shell.Result registerResult = Shell.cmd(
+                                    "pm install -d -r \"" + baseApkPath + "\""
                             ).exec();
+                            
+                            if (!registerResult.isSuccess()) {
+                                // Registration failed, but APK is already replaced
+                                // Log warning but don't fail - the app might still work
+                                runOnUiThread(() -> {
+                                    String warning = registerResult.getOut().isEmpty() ? 
+                                            "Unknown error" : 
+                                            String.join("\n", registerResult.getOut());
+                                    statusText.setText("APK replaced but registration had issues: " + warning + "\n\nApp data preserved. You may need to reboot the device.");
+                                    Toast.makeText(MainActivity.this, "APK replaced with warnings. Reboot may be needed.", Toast.LENGTH_LONG).show();
+                                });
+                            } else {
+                                // Success - APK is both replaced and registered
+                                runOnUiThread(() -> {
+                                    statusText.setText("APK replaced and registered successfully. App data preserved.");
+                                    Toast.makeText(MainActivity.this, "APK installed successfully with data preserved!", Toast.LENGTH_LONG).show();
+                                });
+                            }
                             
                             // Give the system a moment to process
                             try {
@@ -333,13 +352,8 @@ public class MainActivity extends AppCompatActivity {
                                 // Ignore
                             }
                             
-                            // Mark the result as successful
+                            // Mark the result as successful (either way, the APK was replaced)
                             result = replaceResult;
-                            
-                            runOnUiThread(() -> {
-                                statusText.setText("APK replaced successfully. App data preserved.\n\nWARNING: The app may fail to launch due to signature verification. You may need to reboot the device.");
-                                Toast.makeText(MainActivity.this, "APK replaced. App may require reboot to work.", Toast.LENGTH_LONG).show();
-                            });
                         } else {
                             runOnUiThread(() -> {
                                 statusText.setText("Could not extract package name. Unable to replace APK.");

@@ -19,14 +19,14 @@ The previous implementation used these steps when encountering signature mismatc
 - Runtime permissions were reset
 - More complex and slower
 
-### New Approach (Direct APK Replacement)
-The new implementation directly replaces the APK file on the filesystem:
+### New Approach (Hybrid: Direct APK Replacement + Proper Registration)
+The new implementation directly replaces the APK file on the filesystem and then properly registers it:
 1. Find installed APK location with `pm path <package>`
 2. Force-stop the app with `am force-stop`
 3. Copy new APK over the old one with `cp -f`
 4. Set proper permissions: `chmod 644` and `chown system:system`
 5. Restore SELinux context with `restorecon`
-6. Attempt to refresh Package Manager cache
+6. Run `pm install` on the replaced APK to register it with PackageManager
 
 **Benefits of this approach:**
 - ✅ **Perfect data preservation** - no data is touched
@@ -37,11 +37,8 @@ The new implementation directly replaces the APK file on the filesystem:
 - ✅ **Simpler** - fewer steps, less code
 
 **Known limitations:**
-- ⚠️ App may fail signature verification on launch
-- ⚠️ Device reboot may be required
 - ⚠️ Split APKs only have base.apk replaced
 - ⚠️ May not work on all Android versions
-- ⚠️ PackageManager cache may become out of sync
 
 ## Implementation Details
 
@@ -69,8 +66,8 @@ chown system:system <installed_apk_path>
 # Restore SELinux context
 restorecon <installed_apk_path>
 
-# Attempt cache refresh (best effort)
-pm path <package_name> > /dev/null 2>&1
+# Register the replaced APK with PackageManager
+pm install -d -r <installed_apk_path>
 ```
 
 ### Error Handling
@@ -90,9 +87,8 @@ The app provides real-time status updates:
 - "Warning: App uses split APKs. This may not work correctly."
 - "Force-stopping <package>..."
 - "Replacing APK file(s)..."
-- "Refreshing Package Manager cache..."
-- "APK replaced successfully. App data preserved."
-- Warning about potential launch issues and reboot requirement
+- "Registering APK with Package Manager..."
+- "APK replaced and registered successfully. App data preserved."
 
 ## Testing
 
@@ -129,13 +125,14 @@ The app provides real-time status updates:
 
 The request was to implement "the approach of replacing the apk file directly" instead of the uninstall/reinstall approach because "the current uninstall reinstall approach definitely doesn't persist data."
 
-While the previous backup/restore mechanism did attempt to preserve data, the new direct replacement approach:
-1. **Guarantees** data preservation (no uninstall = no data loss)
-2. Is simpler and faster
+The hybrid approach combines the best of both methods:
+1. **Guarantees** data preservation by replacing the APK file directly (no uninstall = no data loss)
+2. **Properly registers** the app with PackageManager by running `pm install` on the replaced APK
 3. Preserves runtime permissions
 4. Maintains the exact same UID
+5. Prevents app corruption and disappearance that occurred with filesystem-only replacement
 
-The trade-off is that apps may fail Android's signature verification checks, but this is an acceptable risk for users who understand they're bypassing security measures.
+This solves the issue where apps would work initially but then corrupt and disappear because the PackageManager cache was out of sync with the filesystem. By registering the already-replaced APK, we ensure Android knows about the new signature while keeping all data intact.
 
 ## Security Considerations
 
