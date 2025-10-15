@@ -219,6 +219,46 @@ public class MainActivity extends AppCompatActivity {
                         if (packageName != null) {
                             final String pkgName = packageName;
                             
+                            // Check if the app is currently installed
+                            boolean isAppInstalled = false;
+                            try {
+                                getPackageManager().getPackageInfo(packageName, 0);
+                                isAppInstalled = true;
+                            } catch (PackageManager.NameNotFoundException e) {
+                                // App is not installed
+                            }
+                            
+                            if (!isAppInstalled) {
+                                // App is not installed, so we can't use direct APK replacement
+                                // Fall back to uninstall/reinstall approach (which will just install since app doesn't exist)
+                                runOnUiThread(() -> {
+                                    statusText.setText("App not installed. Using uninstall/reinstall approach...");
+                                });
+                                
+                                // Try to install with force flag (-f) to bypass signature checks
+                                Shell.Result forceInstallResult = Shell.cmd(
+                                        "pm uninstall " + packageName,
+                                        "pm install -d -r \"" + apkPath + "\""
+                                ).exec();
+                                
+                                final Shell.Result finalForceResult = forceInstallResult;
+                                runOnUiThread(() -> {
+                                    if (finalForceResult.isSuccess() || finalForceResult.getOut().toString().contains("Success")) {
+                                        statusText.setText("App installed successfully (no previous app to preserve data from)");
+                                        Toast.makeText(MainActivity.this, "App installed successfully!", Toast.LENGTH_LONG).show();
+                                    } else {
+                                        String error = finalForceResult.getOut().isEmpty() ? 
+                                                "Unknown error" : 
+                                                String.join("\n", finalForceResult.getOut());
+                                        statusText.setText("Installation failed: " + error);
+                                        Toast.makeText(MainActivity.this, "Installation failed: " + error, Toast.LENGTH_LONG).show();
+                                    }
+                                    installButton.setEnabled(true);
+                                    selectButton.setEnabled(true);
+                                });
+                                return;
+                            }
+                            
                             runOnUiThread(() -> {
                                 statusText.setText("Finding installed APK location for " + pkgName + "...");
                             });
