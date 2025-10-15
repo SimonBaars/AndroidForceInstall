@@ -38,7 +38,7 @@ The main activity handles:
 - **Root Access Check**: Uses libsu to verify and request root privileges
 - **File Selection**: Implements ACTION_GET_CONTENT intent to pick APK files
 - **URI to File Conversion**: Copies content:// URIs to cache for installation
-- **Force Installation**: Executes `pm install -d -r` with root to bypass restrictions
+- **Force Installation**: Executes `pm install -d -r --user 0` with root to bypass restrictions
 
 ### Core Functionality
 
@@ -52,9 +52,10 @@ The main activity handles:
 1. User selects APK file via system picker
 2. App copies file from content:// URI to cache directory
 3. User taps "Force Install"
-4. App executes root shell command: `pm install -d -r <path>`
+4. App executes root shell command: `pm install -d -r --user 0 <path>`
    - `-d`: Allow version downgrades
    - `-r`: Replace existing package
+   - `--user 0`: Install to user space (not private space)
 5. If installation fails with signature mismatch (INSTALL_FAILED_UPDATE_INCOMPATIBLE):
    - Extract package name using Android's `PackageManager.getPackageArchiveInfo()`
    - Detect current install location (internal/external storage) using `pm path`
